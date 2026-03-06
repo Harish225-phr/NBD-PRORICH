@@ -1655,10 +1655,18 @@
     
     // === PAGINATION STATE ===
     let currentLeadsPage = 1;
-    let currentLeadsLimit = 50;
+    let currentLeadsLimit = 50;  // Default, will change based on role
     let currentLeadsTotal = 0;
     let currentLeadsTotalPages = 0;
     let currentLeadsFilter = 'ALL';
+    
+    // Role-specific pagination limits
+    const PAGINATION_LIMITS = {
+      'TELECALLER': 50,           // Telecaller sees only their leads (fewer)
+      'SALES COORDINATOR': 200,   // SC needs to see many leads at once
+      'SALES PERSON': 75,         // Sales person pagination
+      'ADMIN': 100                // Admin sees everything
+    };
 
     // === INDIAN STATES & UTs CONSTANT ===
     const INDIAN_STATES = [
@@ -2722,6 +2730,10 @@
       currentLeadsTotalPages = 0;
       currentLeadsTotal = 0;
       
+      // Set role-specific pagination limit
+      currentLeadsLimit = PAGINATION_LIMITS[currentUser?.role] || 50;
+      console.log('Using pagination limit:', currentLeadsLimit, 'for role:', currentUser?.role);
+      
       // Update page title and nav
       document.getElementById('pageTitle').textContent = getFilterTitle(filter);
       showLoading();
@@ -2749,14 +2761,14 @@
         .withSuccessHandler((sheetLeads) => {
           console.log('Leads from sheet:', sheetLeads.length);
           
-          // Try Python API with pagination (page 1, limit 50)
+          // Try Python API with role-specific pagination limit
           callPythonAPI('/process-leads', {
             leads: sheetLeads,
             user_id: currentUser.user_id,
             role: currentUser.role,
             filter_type: filter,
             page: 1,
-            limit: 50
+            limit: currentLeadsLimit  // Use role-specific limit
           }).then(result => {
             // If Python API fails, fallback to Apps Script
             if (!result || !result.success) {
@@ -3205,6 +3217,17 @@
     // === SC ALL LEADS VIEW (Stage-wise filterable) ===
     function loadSCAllLeads() {
       document.getElementById('pageTitle').textContent = 'All Leads';
+      
+      // OPTIMIZATION: Track pagination state
+      currentLeadsFilter = 'ALL';
+      currentLeadsPage = 1;
+      currentLeadsTotalPages = 0;
+      currentLeadsTotal = 0;
+      
+      // Set role-specific pagination limit
+      currentLeadsLimit = PAGINATION_LIMITS[currentUser?.role] || 50;
+      console.log('SC All Leads: Using pagination limit:', currentLeadsLimit, 'for role:', currentUser?.role);
+      
       showLoading();
 
       // Fetch leads from sheet first
@@ -3212,12 +3235,14 @@
         .withSuccessHandler((sheetLeads) => {
           console.log('Leads from sheet:', sheetLeads.length);
           
-          // Try Python API first
+          // Try Python API first with role-specific pagination
           callPythonAPI('/process-leads', {
             leads: sheetLeads,
             user_id: currentUser.user_id,
             role: currentUser.role,
-            filter_type: 'ALL'
+            filter_type: 'ALL',
+            page: 1,
+            limit: currentLeadsLimit  // Use role-specific limit
           }).then(result => {
             if (!result || !result.success) {
               console.log('Python API failed, using Apps Script fallback...');
@@ -3226,6 +3251,9 @@
                   hideLoading();
                   if (result && result.success) {
                     currentLeads = result.leads || [];
+                    currentLeadsTotal = currentLeads.length;
+                    currentLeadsTotalPages = 1;
+                    currentLeadsPage = 1;
                     renderSCAllLeads(currentLeads, 'ALL');
                   }
                 })
@@ -3239,7 +3267,13 @@
 
             hideLoading();
             currentLeads = result.leads || [];
-            renderSCAllLeads(currentLeads, 'ALL');
+            currentLeadsTotal = result.total || 0;
+            currentLeadsTotalPages = result.total_pages || 1;
+            currentLeadsPage = result.page || 1;
+            currentLeadsLimit = result.limit || 50;
+            
+            console.log('SC All Leads loaded:', currentLeads.length, 'Total:', currentLeadsTotal, 'Pages:', currentLeadsTotalPages);
+            renderSCAllLeads(currentLeads, 'ALL', null, true);
           });
         })
         .withFailureHandler(() => {
@@ -3249,7 +3283,7 @@
         .getAllLeadsFromSheet();
     }
 
-    function renderSCAllLeads(leads, stageFilter, dateFilter) {
+    function renderSCAllLeads(leads, stageFilter, dateFilter, withPagination = false) {
       let filteredLeads = leads;
       if (stageFilter && stageFilter !== 'ALL') {
         if (stageFilter === 'LOST') {
@@ -3308,7 +3342,7 @@
         </div>
         <div class="card">
           <div class="card-header" style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:15px;">
-            <h3><i class="fas fa-list"></i> ${filteredLeads.length} Lead${filteredLeads.length !== 1 ? 's' : ''}</h3>
+            <h3><i class="fas fa-list"></i> ${filteredLeads.length} Lead${filteredLeads.length !== 1 ? 's' : ''} ${withPagination && currentLeadsTotal > 0 ? '/ ' + currentLeadsTotal + ' Total - Page ' + currentLeadsPage + '/' + currentLeadsTotalPages : ''}</h3>
             <div style="display:flex;gap:8px;align-items:center;">
               <input type="text" id="scAllLeadsSearch" placeholder="Search Lead ID, Phone, Name..." style="padding:8px 12px;border:1px solid var(--gray-300);border-radius:4px;font-size:14px;min-width:250px;">
               <button class="btn btn-primary btn-sm" onclick="applySCAllLeadsSearch('${stageFilter}')"><i class="fas fa-search"></i></button>
@@ -3383,8 +3417,70 @@
         });
       }
 
-      html += `</tbody></table></div></div></div>`;
+      html += `</tbody></table></div>
+            ${withPagination && currentLeadsPage < currentLeadsTotalPages ? `
+              <div style="display: flex; justify-content: center; margin-top: 20px; padding-top: 20px; border-top: 1px solid var(--gray-200);">
+                <button class="btn btn-primary" onclick="loadMoreSCAllLeads()">
+                  <i class="fas fa-arrow-down"></i> Load More (${currentLeadsPage}/${currentLeadsTotalPages})
+                </button>
+              </div>
+            ` : ''}
+            </div></div></div>`;
       document.getElementById('contentArea').innerHTML = html;
+    }
+
+    // === LOAD MORE SC ALL LEADS (PAGINATION) ===
+    function loadMoreSCAllLeads() {
+      if (currentLeadsPage >= currentLeadsTotalPages) {
+        showToast('No more leads to load', 'info');
+        return;
+      }
+      
+      const nextPage = currentLeadsPage + 1;
+      console.log('Loading SC All Leads page', nextPage, 'of', currentLeadsTotalPages);
+      
+      showLoading();
+      
+      // Fetch leads from Apps Script
+      google.script.run
+        .withSuccessHandler((sheetLeads) => {
+          // Try Python API for next page
+          callPythonAPI('/process-leads', {
+            leads: sheetLeads,
+            user_id: currentUser.user_id,
+            role: currentUser.role,
+            filter_type: 'ALL',
+            page: nextPage,
+            limit: currentLeadsLimit
+          }).then(result => {
+            hideLoading();
+            
+            if (!result || !result.success) {
+              showToast('Error loading more leads', 'error');
+              return;
+            }
+
+            // Append new leads to current list
+            const newLeads = result.leads || [];
+            currentLeads = currentLeads.concat(newLeads);
+            currentLeadsPage = result.page || nextPage;
+            currentLeadsTotalPages = result.total_pages || currentLeadsTotalPages;
+            currentLeadsTotal = result.total || currentLeadsTotal;
+            
+            console.log('Appended', newLeads.length, 'leads. Total now:', currentLeads.length);
+            
+            // Re-render the full SC All Leads view
+            renderSCAllLeads(currentLeads, 'ALL', null, true);
+            
+            showToast('Loaded ' + newLeads.length + ' more leads', 'success');
+          });
+        })
+        .withFailureHandler((err) => {
+          hideLoading();
+          console.error('Error fetching leads for pagination:', err);
+          showToast('Error loading more leads', 'error');
+        })
+        .getAllLeadsFromSheet();
     }
 
     function applySCAllLeadsSearch(stageFilter) {

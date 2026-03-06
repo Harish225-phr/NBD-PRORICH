@@ -261,6 +261,8 @@ async def process_leads(request: FilterRequest):
         filtered = []
         
         if role == 'TELECALLER':
+            # TELECALLER: Always filter by their ID - they can only see leads assigned to them
+            # The 'ALL' filter for telecaller means "all my led", not "all system leads"
             filtered = [
                 l for l in leads 
                 if str_trim_upper(l.get('telecaller_id', '')) == user_id
@@ -277,8 +279,11 @@ async def process_leads(request: FilterRequest):
                     if (str_trim_upper(l.get('current_stage', '')) == 'TELE' and
                         str_trim_upper(l.get('current_status', '')) == 'NOT CONNECTED')
                 ]
+            # For 'ALL' filter with TELECALLER: Just show all their leads (already filtered above)
         
         elif role == 'SALES COORDINATOR':
+            # SC: Always see all leads in the system (to manage them)
+            # Different filters show different subsets
             if filter_type == 'NOT_QUALIFIED':
                 filtered = [
                     l for l in leads
@@ -291,6 +296,7 @@ async def process_leads(request: FilterRequest):
                     if str_trim_upper(l.get('current_stage', '')) == 'JUNK'
                 ]
             else:
+                # For 'ALL' filter for SC: Show ALL system leads (they need visibility)
                 filtered = leads
         
         elif role == 'SALES PERSON':
