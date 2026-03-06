@@ -2139,55 +2139,34 @@
     // === DAILY DASHBOARD (Telecaller & Sales Person) ===
     function loadDailyDashboard(dateStr) {
       showLoading();
-
-      // Fetch leads from sheet first
+      
+      // Use Apps Script directly for reliable data
       google.script.run
-        .withSuccessHandler((sheetLeads) => {
-          console.log('Leads from sheet:', sheetLeads.length);
-          
-          // Try Python API first
-          callPythonAPI('/daily-dashboard', {
-            leads: sheetLeads,
-            user_id: currentUser.user_id,
-            role: currentUser.role,
-            date: dateStr
-          }).then(result => {
-            if (!result || !result.success) {
-              console.log('Python API failed, using Apps Script fallback...');
-              google.script.run
-                .withSuccessHandler((result) => {
-                  hideLoading();
-                  if (result.success) {
-                    renderDailyDashboard(result);
-                  } else {
-                    showToast(result.message || 'Error', 'error');
-                  }
-                })
-                .withFailureHandler(() => {
-                  hideLoading();
-                  showToast('Error loading daily dashboard', 'error');
-                })
-                .getDailyDashboardData(currentUser.user_id, currentUser.role, dateStr);
-              return;
-            }
-
-            hideLoading();
-            renderDailyDashboard(result);
-          });
-        })
-        .withFailureHandler(() => {
+        .withSuccessHandler((result) => {
           hideLoading();
-          showToast('Error loading daily dashboard', 'error');
+          if (result && result.success) {
+            console.log('Daily Dashboard Data:', result);
+            renderDailyDashboard(result);
+          } else {
+            showToast(result?.message || 'Error loading daily dashboard', 'error');
+          }
         })
-        .getAllLeadsFromSheet();
+        .withFailureHandler((err) => {
+          hideLoading();
+          console.error('Error:', err);
+          showToast('Error loading daily dashboard: ' + err, 'error');
+        })
+        .getDailyDashboardData(currentUser.user_id, currentUser.role, dateStr);
     }
 
     function renderDailyDashboard(data) {
-      const dateStr = data.date;
-      const stats = data.stats;
+      console.log('=== Rendering Daily Dashboard ===', data);
+      
+      const dateStr = data.date || new Date().toISOString().split('T')[0];
+      const stats = data.stats || {};
       const activities = data.activities || [];
 
-      // Date label
+      console.log('dateStr:', dateStr, 'stats:', stats, 'activities count:', activities.length);
       const _now = new Date();
       const today = _now.getFullYear() + '-' + String(_now.getMonth()+1).padStart(2,'0') + '-' + String(_now.getDate()).padStart(2,'0');
       const _yd = new Date(_now); _yd.setDate(_yd.getDate() - 1);
@@ -2801,16 +2780,7 @@
           showToast('Error loading leads', 'error');
         })
         .getAllLeadsFromSheet();
-          return;
-        }
-
-        // Python API succeeded - use the results
-        console.log('=== Python API SUCCESS ===');
-        hideLoading();
-        currentLeads = result.leads || [];
-        console.log('Leads count:', currentLeads.length);
-        renderLeadsTable(currentLeads, filter);
-    
+    }
 
     function getFilterTitle(filter) {
       const titles = {
@@ -4460,6 +4430,15 @@
       const _yd = new Date(_n); _yd.setDate(_yd.getDate() - 1);
       const yesterday = _yd.getFullYear() + '-' + String(_yd.getMonth()+1).padStart(2,'0') + '-' + String(_yd.getDate()).padStart(2,'0');
 
+      // APPLY DATE FILTER
+      let filteredLeads = leads;
+      if (dateFilter && dateFilter !== 'ALL') {
+        filteredLeads = leads.filter(l => {
+          const meetingDate = String(l.meeting_datetime || '').split('T')[0];
+          return meetingDate === dateFilter;
+        });
+      }
+
       let dateLabel = '';
       if (dateFilter === today) dateLabel = ' (Today)';
       else if (dateFilter === yesterday) dateLabel = ' (Yesterday)';
@@ -4484,7 +4463,7 @@
         </div>
       `;
       
-      if (leads.length === 0) {
+      if (filteredLeads.length === 0) {
         html += `
           <div class="card">
             <div class="empty-state">
@@ -4501,7 +4480,7 @@
       html += `
         <div class="card">
           <div class="card-header" style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 15px;">
-            <h3>${leads.length} Lead${leads.length > 1 ? 's' : ''} ${dateFilter !== 'ALL' ? '(Date: ' + dateFilter + ')' : ''}</h3>
+            <h3>${filteredLeads.length} Lead${filteredLeads.length > 1 ? 's' : ''} ${dateFilter !== 'ALL' ? '(Date: ' + dateFilter + ')' : ''}</h3>
             <div style="display: flex; gap: 8px; align-items: center;">
               <input type="text" id="searchLeadsInput" placeholder="Search by Lead ID, Phone or Name..." style="padding: 8px 12px; border: 1px solid var(--gray-300); border-radius: 4px; font-size: 14px; flex: 1; min-width: 250px;">
               <button class="btn btn-primary" onclick="applySalesMeetingsSearch()"><i class="fas fa-search"></i> Search</button>
@@ -4528,7 +4507,7 @@
       `;
 
       let tableRows = '';
-      leads.forEach(lead => {
+      filteredLeads.forEach(lead => {
         let actionButtons = `
           <button class="btn-icon view" onclick="viewLeadHistory('${lead.lead_id}')" title="View History">
             <i class="fas fa-history"></i>

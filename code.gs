@@ -1697,11 +1697,14 @@ function getDailyDashboardData(userId, role, dateStr) {
       
     } else if (role === 'SALES PERSON') {
       const myUserId = String(userId || '').trim();
+      // For Sales Person, filter by meeting_datetime (scheduled date), not created_at
       const filteredMeetings = meetingLog.filter(m =>
         String(m.sales_id || '').trim() === myUserId &&
-        String(m.created_at || '').split('T')[0] === dateStr &&
+        String(m.meeting_datetime || m.created_at || '').split('T')[0] === dateStr &&
         String(m.meeting_status || '').trim().toUpperCase() !== 'REASSIGNED'
       );
+      
+      Logger.log('SALES PERSON ' + myUserId + ' meetings for ' + dateStr + ': ' + filteredMeetings.length);
       
       let scheduled = 0, meeting_done = 0, follow_up = 0, converted = 0, lost = 0, no_show = 0;
       filteredMeetings.forEach(m => {
@@ -1717,8 +1720,8 @@ function getDailyDashboardData(userId, role, dateStr) {
       const latestByLead = {};
       filteredMeetings.forEach(m => {
         const lid = m.lead_id;
-        const mTime = new Date(m.created_at || 0).getTime();
-        if (!latestByLead[lid] || mTime > new Date(latestByLead[lid].created_at || 0).getTime()) {
+        const mTime = new Date(m.meeting_datetime || m.created_at || 0).getTime();
+        if (!latestByLead[lid] || mTime > new Date(latestByLead[lid].meeting_datetime || latestByLead[lid].created_at || 0).getTime()) {
           latestByLead[lid] = m;
         }
       });
@@ -1727,7 +1730,7 @@ function getDailyDashboardData(userId, role, dateStr) {
       const activities = uniqueMeetings.map(m => {
         const lead = leadsMap[m.lead_id] || {};
         return {
-          time: m.created_at,
+          time: m.meeting_datetime || m.created_at,
           lead_id: m.lead_id,
           customer_name: lead.customer_name || '',
           phone: lead.phone || '',
