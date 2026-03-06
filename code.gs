@@ -18,7 +18,7 @@ const SHEETS = {
 // === PYTHON API CONFIGURATION ===
 // Set this to your Python FastAPI backend URL (e.g., https://your-render-app.onrender.com)
 // Leave empty to use local/direct processing (for testing without Python backend)
-const PYTHON_API_URL = ''; // TODO: Set this to your Render deployment URL
+const PYTHON_API_URL = 'https://nbd-prorich.onrender.com';
 
 // === Performance Cache (30 seconds) ===
 const CACHE_DURATION = 30000; // milliseconds

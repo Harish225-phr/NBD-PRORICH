@@ -1625,6 +1625,28 @@
     // NBD LEAD MANAGEMENT SYSTEM - FRONTEND
     // ============================================
 
+    // === PYTHON API CONFIGURATION ===
+    const PYTHON_API_URL = 'https://nbd-prorich.onrender.com';
+
+    // === CALL PYTHON API - NO PERMISSION ISSUES! ===
+    async function callPythonAPI(endpoint, data) {
+      try {
+        const response = await fetch(PYTHON_API_URL + endpoint, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(data)
+        });
+        if (!response.ok) {
+          console.error('API Response Error:', response.status);
+          return null;
+        }
+        return await response.json();
+      } catch(error) {
+        console.error('Python API Error:', error.message);
+        return null;
+      }
+    }
+
     // === STATE MANAGEMENT ===
     let currentUser = null;
     let currentLeads = [];
@@ -2074,37 +2096,90 @@
 
       // For SC: show normal dashboard
       showLoading();
+
+      // Fetch leads from sheet first
       google.script.run
-        .withSuccessHandler((result) => {
-          hideLoading();
-          if (result.success) {
+        .withSuccessHandler((sheetLeads) => {
+          console.log('Leads from sheet:', sheetLeads.length);
+          
+          // Try Python API first
+          callPythonAPI('/dashboard-stats', {
+            leads: sheetLeads,
+            user_id: currentUser.user_id,
+            role: currentUser.role
+          }).then(result => {
+            if (!result || !result.success) {
+              console.log('Python API failed, using Apps Script fallback...');
+              google.script.run
+                .withSuccessHandler((result) => {
+                  hideLoading();
+                  if (result.success) {
+                    renderDashboard(result.stats);
+                  }
+                })
+                .withFailureHandler(() => {
+                  hideLoading();
+                  showToast('Error loading dashboard', 'error');
+                })
+                .getDashboardStats(currentUser.user_id, currentUser.role);
+              return;
+            }
+
+            hideLoading();
             renderDashboard(result.stats);
-          }
+          });
         })
         .withFailureHandler(() => {
           hideLoading();
           showToast('Error loading dashboard', 'error');
         })
-        .getDashboardStats(currentUser.user_id, currentUser.role);
+        .getAllLeadsFromSheet();
     }
 
     // === DAILY DASHBOARD (Telecaller & Sales Person) ===
     function loadDailyDashboard(dateStr) {
       showLoading();
+
+      // Fetch leads from sheet first
       google.script.run
-        .withSuccessHandler((result) => {
-          hideLoading();
-          if (result.success) {
+        .withSuccessHandler((sheetLeads) => {
+          console.log('Leads from sheet:', sheetLeads.length);
+          
+          // Try Python API first
+          callPythonAPI('/daily-dashboard', {
+            leads: sheetLeads,
+            user_id: currentUser.user_id,
+            role: currentUser.role,
+            date: dateStr
+          }).then(result => {
+            if (!result || !result.success) {
+              console.log('Python API failed, using Apps Script fallback...');
+              google.script.run
+                .withSuccessHandler((result) => {
+                  hideLoading();
+                  if (result.success) {
+                    renderDailyDashboard(result);
+                  } else {
+                    showToast(result.message || 'Error', 'error');
+                  }
+                })
+                .withFailureHandler(() => {
+                  hideLoading();
+                  showToast('Error loading daily dashboard', 'error');
+                })
+                .getDailyDashboardData(currentUser.user_id, currentUser.role, dateStr);
+              return;
+            }
+
+            hideLoading();
             renderDailyDashboard(result);
-          } else {
-            showToast(result.message || 'Error', 'error');
-          }
+          });
         })
         .withFailureHandler(() => {
           hideLoading();
           showToast('Error loading daily dashboard', 'error');
         })
-        .getDailyDashboardData(currentUser.user_id, currentUser.role, dateStr);
+        .getAllLeadsFromSheet();
     }
 
     function renderDailyDashboard(data) {
@@ -2277,20 +2352,47 @@
     // === ADMIN DAILY DASHBOARD (DATE-FILTERED FULL ACTIVITY VIEW) ===
     function loadAdminDailyDashboard(dateStr) {
       showLoading();
+
+      // Fetch leads from sheet first
       google.script.run
-        .withSuccessHandler((result) => {
-          hideLoading();
-          if (result.success) {
+        .withSuccessHandler((sheetLeads) => {
+          console.log('Leads from sheet:', sheetLeads.length);
+          
+          // Try Python API first (using daily-dashboard endpoint with ADMIN role)
+          callPythonAPI('/daily-dashboard', {
+            leads: sheetLeads,
+            user_id: currentUser.user_id,
+            role: currentUser.role,
+            date: dateStr
+          }).then(result => {
+            if (!result || !result.success) {
+              console.log('Python API failed, using Apps Script fallback for admin dashboard...');
+              google.script.run
+                .withSuccessHandler((result) => {
+                  hideLoading();
+                  if (result.success) {
+                    renderAdminDailyDashboard(result);
+                  } else {
+                    showToast(result.message || 'Error', 'error');
+                  }
+                })
+                .withFailureHandler(() => {
+                  hideLoading();
+                  showToast('Error loading admin dashboard', 'error');
+                })
+                .getAdminDailySummary(dateStr);
+              return;
+            }
+
+            hideLoading();
             renderAdminDailyDashboard(result);
-          } else {
-            showToast(result.message || 'Error', 'error');
-          }
+          });
         })
         .withFailureHandler(() => {
           hideLoading();
           showToast('Error loading admin dashboard', 'error');
         })
-        .getAdminDailySummary(dateStr);
+        .getAllLeadsFromSheet();
     }
 
     function renderAdminDailyDashboard(data) {
@@ -2648,66 +2750,67 @@
         return;
       }
 
-      console.log('Calling google.script.run.listLeadsByRole with:', currentUser.user_id, currentUser.role, filter);
-
+      console.log('Calling Python API with:', currentUser.user_id, currentUser.role, filter);
+      
+      // First fetch leads from Apps Script, then send to Python API
       google.script.run
-        .withSuccessHandler((result) => {
-          console.log('=== SUCCESS HANDLER ===');
-          console.log('Raw result:', result);
-          console.log('Result type:', typeof result);
-          hideLoading();
+        .withSuccessHandler((sheetLeads) => {
+          console.log('Leads from sheet:', sheetLeads.length);
           
-          // Handle null result
-          if (result === null || result === undefined) {
-            console.error('Result is null/undefined!');
-            document.getElementById('contentArea').innerHTML = `
-              <div class="card">
-                <div class="empty-state">
-                  <i class="fas fa-exclamation-circle"></i>
-                  <h3>No Data Received</h3>
-                  <p>Server returned null. Please refresh and try again.</p>
-                  <p style="font-size: 12px; color: var(--gray-400);">Try: Deploy → Manage deployments → Edit → New version → Deploy</p>
-                </div>
-              </div>
-            `;
-            return;
-          }
-          
-          if (result.success) {
+          // Try Python API with the leads data
+          callPythonAPI('/process-leads', {
+            leads: sheetLeads,
+            user_id: currentUser.user_id,
+            role: currentUser.role,
+            filter_type: filter
+          }).then(result => {
+            // If Python API fails, fallback to Apps Script
+            if (!result || !result.success) {
+              console.log('Python API failed/unavailable, using Apps Script fallback...');
+              google.script.run
+                .withSuccessHandler((result) => {
+                  console.log('=== SUCCESS HANDLER (Apps Script Fallback) ===');
+                  hideLoading();
+                  if (result && result.success) {
+                    currentLeads = result.leads || [];
+                    renderLeadsTable(currentLeads, filter);
+                  } else {
+                    document.getElementById('contentArea').innerHTML = `<div class="card"><div class="empty-state"><i class="fas fa-inbox"></i><h3>No leads found</h3></div></div>`;
+                  }
+                })
+                .withFailureHandler((err) => {
+                  console.error('Fallback error:', err);
+                  hideLoading();
+                  showToast('Error loading leads', 'error');
+                })
+                .listLeadsByRole(currentUser.user_id, currentUser.role, filter);
+              return;
+            }
+
+            // Python API succeeded - use the results
+            console.log('=== Python API SUCCESS ===', result);
+            hideLoading();
             currentLeads = result.leads || [];
             console.log('Leads count:', currentLeads.length);
-            console.log('Leads data:', currentLeads);
             renderLeadsTable(currentLeads, filter);
-          } else {
-            console.error('Result not success:', result.message);
-            document.getElementById('contentArea').innerHTML = `
-              <div class="card">
-                <div class="empty-state">
-                  <i class="fas fa-inbox"></i>
-                  <h3>Error loading leads</h3>
-                  <p>${result.message || 'Unknown error'}</p>
-                </div>
-              </div>
-            `;
-          }
+          });
         })
         .withFailureHandler((err) => {
-          console.error('=== FAILURE HANDLER ===');
-          console.error('Error:', err);
+          console.error('Error fetching leads:', err);
           hideLoading();
-          document.getElementById('contentArea').innerHTML = `
-            <div class="card">
-              <div class="empty-state">
-                <i class="fas fa-exclamation-circle"></i>
-                <h3>Connection Error</h3>
-                <p>${err ? err.message || err : 'Unknown error'}</p>
-                <p style="font-size: 12px; color: var(--gray-400);">Please refresh the page</p>
-              </div>
-            </div>
-          `;
+          showToast('Error loading leads', 'error');
         })
-        .listLeadsByRole(currentUser.user_id, currentUser.role, filter);
-    }
+        .getAllLeadsFromSheet();
+          return;
+        }
+
+        // Python API succeeded - use the results
+        console.log('=== Python API SUCCESS ===');
+        hideLoading();
+        currentLeads = result.leads || [];
+        console.log('Leads count:', currentLeads.length);
+        renderLeadsTable(currentLeads, filter);
+    
 
     function getFilterTitle(filter) {
       const titles = {
@@ -2992,21 +3095,46 @@
       document.getElementById('pageTitle').textContent = 'All Leads';
       showLoading();
 
+      // Fetch leads from sheet first
       google.script.run
-        .withSuccessHandler((result) => {
-          hideLoading();
-          if (result.success) {
+        .withSuccessHandler((sheetLeads) => {
+          console.log('Leads from sheet:', sheetLeads.length);
+          
+          // Try Python API first
+          callPythonAPI('/process-leads', {
+            leads: sheetLeads,
+            user_id: currentUser.user_id,
+            role: currentUser.role,
+            filter_type: 'ALL'
+          }).then(result => {
+            if (!result || !result.success) {
+              console.log('Python API failed, using Apps Script fallback...');
+              google.script.run
+                .withSuccessHandler((result) => {
+                  hideLoading();
+                  if (result && result.success) {
+                    currentLeads = result.leads || [];
+                    renderSCAllLeads(currentLeads, 'ALL');
+                  }
+                })
+                .withFailureHandler(() => {
+                  hideLoading();
+                  showToast('Error loading leads', 'error');
+                })
+                .listLeadsByRole(currentUser.user_id, currentUser.role, 'ALL');
+              return;
+            }
+
+            hideLoading();
             currentLeads = result.leads || [];
             renderSCAllLeads(currentLeads, 'ALL');
-          } else {
-            showToast(result.message || 'Error loading leads', 'error');
-          }
+          });
         })
         .withFailureHandler(() => {
           hideLoading();
           showToast('Error loading leads', 'error');
         })
-        .listLeadsByRole(currentUser.user_id, currentUser.role, 'ALL');
+        .getAllLeadsFromSheet();
     }
 
     function renderSCAllLeads(leads, stageFilter, dateFilter) {
@@ -3219,19 +3347,46 @@
       document.getElementById('pageTitle').textContent = 'Verification Queue';
       showLoading();
 
+      // Fetch leads from sheet first
       google.script.run
-        .withSuccessHandler((result) => {
-          hideLoading();
-          if (result.success) {
+        .withSuccessHandler((sheetLeads) => {
+          console.log('Leads from sheet:', sheetLeads.length);
+          
+          // Try Python API first
+          callPythonAPI('/process-leads', {
+            leads: sheetLeads,
+            user_id: currentUser.user_id,
+            role: currentUser.role,
+            filter_type: 'NOT_QUALIFIED'
+          }).then(result => {
+            if (!result || !result.success) {
+              console.log('Python API failed, using Apps Script fallback...');
+              google.script.run
+                .withSuccessHandler((result) => {
+                  hideLoading();
+                  if (result && result.success) {
+                    currentLeads = result.leads;
+                    renderSCQueue(result.leads);
+                  }
+                })
+                .withFailureHandler(() => {
+                  hideLoading();
+                  showToast('Error loading verification queue', 'error');
+                })
+                .listLeadsByRole(currentUser.user_id, currentUser.role, 'NOT_QUALIFIED');
+              return;
+            }
+
+            hideLoading();
             currentLeads = result.leads;
             renderSCQueue(result.leads);
-          }
+          });
         })
         .withFailureHandler(() => {
           hideLoading();
           showToast('Error loading verification queue', 'error');
         })
-        .listLeadsByRole(currentUser.user_id, currentUser.role, 'NOT_QUALIFIED');
+        .getAllLeadsFromSheet();
     }
 
 
@@ -3244,20 +3399,48 @@
       document.getElementById('pageTitle').textContent = 'View History';
       showLoading();
 
+      // Fetch leads from sheet first
       google.script.run
-        .withSuccessHandler((result) => {
-          hideLoading();
-          if (result.success) {
+        .withSuccessHandler((sheetLeads) => {
+          console.log('Leads from sheet:', sheetLeads.length);
+          
+          // Try Python API first
+          callPythonAPI('/process-leads', {
+            leads: sheetLeads,
+            user_id: currentUser.user_id,
+            role: currentUser.role,
+            filter_type: 'ALL'
+          }).then(result => {
+            if (!result || !result.success) {
+              console.log('Python API failed, using Apps Script fallback...');
+              google.script.run
+                .withSuccessHandler((result) => {
+                  hideLoading();
+                  if (result && result.success) {
+                    currentLeads = result.leads;
+                    renderSCHistoryView(result.leads);
+                  }
+                })
+                .withFailureHandler(() => {
+                  hideLoading();
+                  showToast('Error loading leads', 'error');
+                })
+                .listLeadsByRole(currentUser.user_id, currentUser.role, 'ALL');
+              return;
+            }
+
+            hideLoading();
             currentLeads = result.leads;
             renderSCHistoryView(result.leads);
-          }
+          });
         })
         .withFailureHandler(() => {
           hideLoading();
           showToast('Error loading leads', 'error');
         })
-        .listLeadsByRole(currentUser.user_id, currentUser.role, 'ALL');
+        .getAllLeadsFromSheet();
     }
+    
 
     function renderSCHistoryView(leads, dateFilter) {
       if (leads.length === 0) {
@@ -3669,19 +3852,46 @@
       document.getElementById('pageTitle').textContent = 'Junk Leads';
       showLoading();
 
+      // Fetch leads from sheet first
       google.script.run
-        .withSuccessHandler((result) => {
-          hideLoading();
-          if (result.success) {
+        .withSuccessHandler((sheetLeads) => {
+          console.log('Leads from sheet:', sheetLeads.length);
+          
+          // Try Python API first
+          callPythonAPI('/process-leads', {
+            leads: sheetLeads,
+            user_id: currentUser.user_id,
+            role: currentUser.role,
+            filter_type: 'JUNK'
+          }).then(result => {
+            if (!result || !result.success) {
+              console.log('Python API failed, using Apps Script fallback...');
+              google.script.run
+                .withSuccessHandler((result) => {
+                  hideLoading();
+                  if (result.success) {
+                    currentLeads = result.leads;
+                    renderJunkLeads(result.leads);
+                  }
+                })
+                .withFailureHandler(() => {
+                  hideLoading();
+                  showToast('Error loading Junk leads', 'error');
+                })
+                .listLeadsByRole(currentUser.user_id, currentUser.role, 'JUNK');
+              return;
+            }
+
+            hideLoading();
             currentLeads = result.leads;
             renderJunkLeads(result.leads);
-          }
+          });
         })
         .withFailureHandler(() => {
           hideLoading();
           showToast('Error loading Junk leads', 'error');
         })
-        .listLeadsByRole(currentUser.user_id, currentUser.role, 'JUNK');
+        .getAllLeadsFromSheet();
     }
 
     function renderJunkLeads(leads, dateFilter) {
@@ -3851,19 +4061,46 @@
       document.getElementById('pageTitle').textContent = 'Reassign Sales Leads';
       showLoading();
 
+      // Fetch leads from sheet first
       google.script.run
-        .withSuccessHandler((result) => {
-          hideLoading();
-          if (result.success) {
+        .withSuccessHandler((sheetLeads) => {
+          console.log('Leads from sheet:', sheetLeads.length);
+          
+          // Try Python API first
+          callPythonAPI('/process-leads', {
+            leads: sheetLeads,
+            user_id: currentUser.user_id,
+            role: currentUser.role,
+            filter_type: 'ALL'
+          }).then(result => {
+            if (!result || !result.success) {
+              console.log('Python API failed, using Apps Script fallback...');
+              google.script.run
+                .withSuccessHandler((result) => {
+                  hideLoading();
+                  if (result.success) {
+                    currentLeads = result.leads;
+                    renderSCManageSalesLeads(result.leads);
+                  }
+                })
+                .withFailureHandler(() => {
+                  hideLoading();
+                  showToast('Error loading leads', 'error');
+                })
+                .listLeadsByRole(currentUser.user_id, currentUser.role, 'ALL');
+              return;
+            }
+
+            hideLoading();
             currentLeads = result.leads;
             renderSCManageSalesLeads(result.leads);
-          }
+          });
         })
         .withFailureHandler(() => {
           hideLoading();
           showToast('Error loading leads', 'error');
         })
-        .listLeadsByRole(currentUser.user_id, currentUser.role, 'ALL');
+        .getAllLeadsFromSheet();
     }
 
     function renderSCManageSalesLeads(leads, dateFilter) {
@@ -4172,19 +4409,46 @@
       
       showLoading();
 
+      // Fetch leads from sheet first
       google.script.run
-        .withSuccessHandler((result) => {
-          hideLoading();
-          if (result.success) {
+        .withSuccessHandler((sheetLeads) => {
+          console.log('Leads from sheet:', sheetLeads.length);
+          
+          // Try Python API first
+          callPythonAPI('/process-leads', {
+            leads: sheetLeads,
+            user_id: currentUser.user_id,
+            role: currentUser.role,
+            filter_type: filter
+          }).then(result => {
+            if (!result || !result.success) {
+              console.log('Python API failed, using Apps Script fallback...');
+              google.script.run
+                .withSuccessHandler((result) => {
+                  hideLoading();
+                  if (result.success) {
+                    currentLeads = result.leads;
+                    renderSalesMeetings(result.leads, filter, salesMeetingsDateFilter);
+                  }
+                })
+                .withFailureHandler(() => {
+                  hideLoading();
+                  showToast('Error loading leads', 'error');
+                })
+                .getSalesLeadsWithDateFilter(currentUser.user_id, filter, salesMeetingsDateFilter);
+              return;
+            }
+
+            hideLoading();
             currentLeads = result.leads;
             renderSalesMeetings(result.leads, filter, salesMeetingsDateFilter);
-          }
+          });
         })
         .withFailureHandler(() => {
           hideLoading();
           showToast('Error loading leads', 'error');
         })
-        .getSalesLeadsWithDateFilter(currentUser.user_id, filter, salesMeetingsDateFilter);
+        .getAllLeadsFromSheet();
     }
 
     function renderSalesMeetings(leads, filter, dateFilter) {
@@ -4434,22 +4698,51 @@
       }
 
       showLoading();
+
+      // Fetch leads from sheet first
       google.script.run
-        .withSuccessHandler((result) => {
-          hideLoading();
-          if (result && result.success) {
+        .withSuccessHandler((sheetLeads) => {
+          console.log('Leads from sheet:', sheetLeads.length);
+          
+          // Try Python API first
+          callPythonAPI('/process-leads', {
+            leads: sheetLeads,
+            user_id: currentUser.user_id,
+            role: currentUser.role,
+            filter_type: 'ALL'
+          }).then(result => {
+            if (!result || !result.success) {
+              console.log('Python API failed, using Apps Script fallback...');
+              google.script.run
+                .withSuccessHandler((result) => {
+                  hideLoading();
+                  if (result && result.success) {
+                    currentLeads = result.leads || [];
+                    renderAdminLeadsTable(currentLeads, adminDateFilter);
+                  } else {
+                    showToast((result && result.message) || 'Error loading leads', 'error');
+                  }
+                })
+                .withFailureHandler((err) => {
+                  hideLoading();
+                  console.error('getAllLeadsAdmin failure:', err);
+                  showToast('Error loading leads: ' + (err ? err.message || err : 'Unknown error. Make sure code.gs is deployed with latest version.'), 'error');
+                })
+                .getAllLeadsAdmin(adminDateFilter);
+              return;
+            }
+
+            hideLoading();
             currentLeads = result.leads || [];
             renderAdminLeadsTable(currentLeads, adminDateFilter);
-          } else {
-            showToast((result && result.message) || 'Error loading leads', 'error');
-          }
+          });
         })
         .withFailureHandler((err) => {
           hideLoading();
           console.error('getAllLeadsAdmin failure:', err);
           showToast('Error loading leads: ' + (err ? err.message || err : 'Unknown error. Make sure code.gs is deployed with latest version.'), 'error');
         })
-        .getAllLeadsAdmin(adminDateFilter);
+        .getAllLeadsFromSheet();
     }
 
     function renderAdminLeadsTable(leads, dateFilter) {
