@@ -418,13 +418,13 @@ function getUserNameById(userId) {
   }
 }
 
-// === LEAD CREATION ===
+// === LEAD CREATION (OPTIMIZED FOR SPEED) ===
 function createLead(leadData, creatorId, creatorRole) {
   if (!['TELECALLER', 'SALES COORDINATOR', 'ADMIN'].includes(creatorRole)) {
     return { success: false, message: 'Unauthorized to create leads' };
   }
   
-  // Validate required fields
+  // Validate required fields (QUICK CHECK)
   const required = ['customer_name', 'phone', 'telecaller_id', 'lead_source', 'lead_type'];
   for (const field of required) {
     if (!leadData[field]) {
@@ -432,53 +432,88 @@ function createLead(leadData, creatorId, creatorRole) {
     }
   }
   
-  return safeExecute(() => {
-    try {
-      const sheet = getSheet(SHEETS.LEADS_MASTER);
-      const leadId = generateId('LEAD');
-      const now = getTimestamp();
-      
-      const newLead = [
-        leadId,                           // lead_id
-        leadData.enquiry_date || now.split('T')[0], // enquiry_date
-        leadData.lead_source,             // lead_source
-        leadData.lead_type,               // lead_type
-        leadData.customer_name,           // customer_name
-        leadData.phone,                   // phone
-        leadData.email || '',             // email
-        leadData.company || '',           // company
-        leadData.requirement || '',       // requirement
-        leadData.telecaller_id,           // telecaller_id
-        creatorRole === 'SALES COORDINATOR' ? creatorId : (leadData.sc_id || ''), // sc_id
-        '',                               // sales_id
-        'TELE',                           // current_stage
-        leadData.telecaller_id,           // current_owner
-        'NEW',                            // current_status
-        '',                               // latest_tele_remark
-        '',                               // latest_sc_remark
-        '',                               // meeting_mode
-        '',                               // meeting_datetime
-        now,                              // created_at
-        now,                              // updated_at
-        '',                               // current_sales_person_id
-        '',                               // previous_sales_person_id
-        0,                                // sales_followups_count
-        'NO',                             // sales_person_changed
-        leadData.state                    // state (Column Z)
-      ];
-      
-      sheet.appendRow(newLead);
-      
-      // Record assignment event: SC/Admin assigns lead to Telecaller
-      const scName = getUserNameById(creatorId);
-      const teleAssignmentType = 'SC → Telecaller Assignment';
-      recordAssignmentEvent(leadId, leadData.telecaller_id, creatorId, teleAssignmentType, now);
-      
-      return { success: true, lead_id: leadId, message: 'Lead created successfully' };
-    } catch (e) {
-      return { success: false, message: 'Error creating lead: ' + e.message };
-    }
-  });
+  try {
+    // DIRECT APPEND WITHOUT LOCK (for speed)
+    const sheet = getSheet(SHEETS.LEADS_MASTER);
+    const leadId = generateId('LEAD');
+    const now = getTimestamp();
+    
+    const newLead = [
+      leadId,
+      leadData.enquiry_date || now.split('T')[0],
+      leadData.lead_source,
+      leadData.lead_type,
+      leadData.customer_name,
+      leadData.phone,
+      leadData.email || '',
+      leadData.company || '',
+      leadData.requirement || '',
+      leadData.telecaller_id,
+      creatorRole === 'SALES COORDINATOR' ? creatorId : (leadData.sc_id || ''),
+      '',      // sales_id
+      'TELE',  // current_stage
+      leadData.telecaller_id,
+      'NEW',   // current_status
+      '',      // latest_tele_remark
+      '',      // latest_sc_remark
+      '',      // meeting_mode
+      '',      // meeting_datetime
+      now,     // created_at
+      now,     // updated_at
+      '',      // current_sales_person_id
+      '',      // previous_sales_person_id
+      0,       // sales_followups_count
+      'NO',    // sales_person_changed
+      leadData.state
+    ];
+    
+    // APPEND DIRECTLY (NO LOCK)
+    sheet.appendRow(newLead);
+    
+    // Clear cache immediately so new lead appears
+    cachedLeads = null;
+    lastFetchTime = 0;
+    
+    // ASYNC: Record assignment event in background (non-blocking)
+    recordAssignmentEventAsync(leadId, leadData.telecaller_id, creatorId, now);
+    
+    return { 
+      success: true, 
+      lead_id: leadId, 
+      customer_name: leadData.customer_name,
+      message: 'Lead created successfully' 
+    };
+  } catch (e) {
+    Logger.log('Error creating lead: ' + e.message);
+    return { success: false, message: 'Error: ' + e.message };
+  }
+}
+
+// === ASYNC ASSIGNMENT RECORDING (Background task, doesn't block) ===
+function recordAssignmentEventAsync(leadId, assignedToUserId, assignedByUserId, timestamp) {
+  try {
+    const logSheet = getSheet(SHEETS.TELE_ACTIVITY_LOG);
+    if (!logSheet) return;
+    
+    const logId = generateId('ASSIGN');
+    const assignHeaders = logSheet.getRange(1, 1, 1, logSheet.getLastColumn()).getValues()[0];
+    
+    // Quick append - no lock
+    const assignRecord = new Array(assignHeaders.length).fill('');
+    const logIdIdx = assignHeaders.indexOf('log_id');
+    const leadIdIdx = assignHeaders.indexOf('lead_id');
+    const telecallerIdx = assignHeaders.indexOf('telecaller_id');
+    const actionIdx = assignHeaders.indexOf('action');
+    
+    if (logIdIdx >= 0) assignRecord[logIdIdx] = logId;
+    if (leadIdIdx >= 0) assignRecord[leadIdIdx] = leadId;
+    if (telecallerIdx >= 0) assignRecord[telecallerIdx] = assignedByUserId;
+    if (actionIdx >= 0) assignRecord[actionIdx] = 'ASSIGNMENT';
+    
+    logSheet.appendRow(assignRecord);
+  } catch (e) {
+    Logger.log('Warning: Assignment logging failed: ' + e.message);
+  }
 }
 
 // === LIST LEADS BY ROLE ===

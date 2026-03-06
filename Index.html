@@ -6139,6 +6139,240 @@
         content.classList.toggle('active', content.id === tabId);
       });
     }
+
+    // === LAZY LOADING CONFIGURATION ===
+    let paginationState = {
+      currentPage: 1,
+      itemsPerPage: 50,
+      totalItems: 0,
+      totalPages: 1,
+      isLoading: false,
+      lastScrollPosition: 0
+    };
+
+    // === ENABLE PAGINATION PARAMETERS IN API CALLS ===
+    function addPaginationToLead(leadData) {
+      if (!leadData) return leadData;
+      return {
+        ...leadData,
+        page: paginationState.currentPage,
+        limit: paginationState.itemsPerPage
+      };
+    }
+
+    // === LAZY LOAD MORE LEADS ON SCROLL ===
+    function setupScrollListener() {
+      const contentArea = document.getElementById('contentArea');
+      if (!contentArea) return;
+
+      contentArea.addEventListener('scroll', function() {
+        // Check if scrolling near bottom (80% of the way)
+        const scrollPercentage = (contentArea.scrollTop + contentArea.clientHeight) / contentArea.scrollHeight;
+        
+        if (scrollPercentage > 0.8 && !paginationState.isLoading) {
+          // Load more leads
+          if (paginationState.currentPage < paginationState.totalPages) {
+            paginationState.currentPage++;
+            loadMoreLeads();
+          }
+        }
+      });
+    }
+
+    // === LOAD MORE LEADS (APPEND TO TABLE) ===
+    async function loadMoreLeads() {
+      if (paginationState.isLoading) return;
+      
+      paginationState.isLoading = true;
+      showLoadingSpinner('Fetching more leads...');
+
+      try {
+        // Determine which API call to make based on current view
+        const filter = getCurrentFilter();
+        
+        // Fetch leads from sheet
+        google.script.run
+          .withSuccessHandler((sheetLeads) => {
+            // Call Python API with pagination
+            callPythonAPI('/process-leads', {
+              leads: sheetLeads,
+              user_id: currentUser.user_id,
+              role: currentUser.role,
+              filter_type: filter,
+              page: paginationState.currentPage,
+              limit: paginationState.itemsPerPage
+            }).then(result => {
+              if (result && result.success) {
+                // Update pagination metadata
+                paginationState.totalItems = result.total || 0;
+                paginationState.totalPages = result.total_pages || 1;
+                
+                // Append new rows to table
+                appendLeadsToTable(result.leads || []);
+                
+                // Update pagination UI
+                updatePaginationUI();
+              }
+              hideLoadingSpinner();
+              paginationState.isLoading = false;
+            }).catch(err => {
+              console.error('Error loading more:', err);
+              hideLoadingSpinner();
+              paginationState.isLoading = false;
+            });
+          })
+          .getAllLeadsFromSheet();
+      } catch (error) {
+        console.error('Load more error:', error);
+        hideLoadingSpinner();
+        paginationState.isLoading = false;
+      }
+    }
+
+    // === APPEND LEADS TO TABLE (NO REPLACE) ===
+    function appendLeadsToTable(newLeads) {
+      if (!newLeads || newLeads.length === 0) return;
+
+      const tbody = document.querySelector('table tbody');
+      if (!tbody) return;
+
+      // Remove empty state if present
+      const emptyRow = tbody.querySelector('tr td[colspan]');
+      if (emptyRow && emptyRow.textContent.includes('No leads')) {
+        emptyRow.parentElement.remove();
+      }
+
+      // Append each new lead row
+      newLeads.forEach((lead, idx) => {
+        const actionBtn = getActionButtonForLead(lead);
+        const isPassedOut = (lead.current_stage || '').toUpperCase() !== 'TELE';
+        const rowStyle = isPassedOut ? 'style="background-color: var(--gray-50); opacity: 0.9;"' : '';
+        
+        const tr = document.createElement('tr');
+        tr.innerHTML = `
+          <td>
+            <strong>${lead.lead_id || '-'}</strong>
+            ${isPassedOut ? '<div style="font-size: 11px; color: var(--gray-500); margin-top: 4px;">Passed Out</div>' : ''}
+          </td>
+          <td>
+            <div><strong>${lead.customer_name || '-'}</strong></div>
+            <div style="font-size: 12px; color: var(--gray-500);">${lead.company || ''}</div>
+          </td>
+          <td>
+            <div><a href="tel:${lead.phone}">${lead.phone || '-'}</a></div>
+            <div style="font-size: 12px; color: var(--gray-500);">${lead.email || ''}</div>
+          </td>
+          <td>${lead.lead_source || '-'}</td>
+          <td><span class="badge badge-${lead.lead_type === 'Export' ? 'success' : 'secondary'}">${lead.lead_type || 'N/A'}</span></td>
+          <td>${lead.state || '-'}</td>
+          <td>
+            <div style="max-width: 150px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;" title="${lead.requirement || ''}">${lead.requirement || '-'}</div>
+          </td>
+          <td>${getStatusBadge(lead.current_status || 'NEW')}</td>
+          <td>${formatDate(lead.enquiry_date || lead.created_at)}</td>
+          <td style="text-align: center; white-space: nowrap; min-width: 120px;">
+            ${actionBtn}
+          </td>
+        `;
+        if (rowStyle) tr.setAttribute('style', rowStyle.slice(7, -1)); // Remove style=" and "
+        
+        tbody.appendChild(tr);
+      });
+
+      showToast(`Loaded ${newLeads.length} more leads`, 'success');
+    }
+
+    // === UPDATE PAGINATION UI ===
+    function updatePaginationUI() {
+      const cardHeader = document.querySelector('.card-header h3');
+      if (cardHeader) {
+        const loadedCount = (paginationState.currentPage * paginationState.itemsPerPage);
+        const total = paginationState.totalItems;
+        cardHeader.textContent = `${Math.min(loadedCount, total)} of ${total} Leads • Page ${paginationState.currentPage} / ${paginationState.totalPages}`;
+      }
+    }
+
+    // === SHOW LOADING SPINNER ===
+    function showLoadingSpinner(message = 'Loading...') {
+      const spinner = document.getElementById('loadingOverlay');
+      if (spinner) {
+        spinner.classList.remove('hidden');
+        const spinnerText = spinner.querySelector('div');
+        if (spinnerText) {
+          spinnerText.innerHTML += `<div style="margin-top: 16px; font-size: 14px; color: var(--gray-600);">${message}</div>`;
+        }
+      }
+    }
+
+    // === HIDE LOADING SPINNER ===
+    function hideLoadingSpinner() {
+      const spinner = document.getElementById('loadingOverlay');
+      if (spinner) {
+        spinner.classList.add('hidden');
+        const spinnerDiv = spinner.querySelector('div');
+        if (spinnerDiv) {
+          spinnerDiv.innerHTML = '<div class="spinner"></div>';
+        }
+      }
+    }
+
+    // === GET CURRENT FILTER TYPE ===
+    function getCurrentFilter() {
+      const activeNav = document.querySelector('.nav-item.active');
+      if (!activeNav) return 'ALL';
+      
+      const pageAttr = activeNav.getAttribute('data-page');
+      const filterMap = {
+        'today': 'TODAY',
+        'followup': 'FOLLOWUP_DUE',
+        'all': 'ALL',
+        'tele': 'TELE',
+        'sc': 'SC',
+        'sales': 'SALES'
+      };
+      return filterMap[pageAttr] || 'ALL';
+    }
+
+    // === INITIALIZE PAGINATION ON TABLE LOAD ===
+    function initializePagination(totalLeads, totalPages) {
+      paginationState.totalItems = totalLeads;
+      paginationState.totalPages = totalPages;
+      paginationState.currentPage = 1;
+      paginationState.isLoading = false;
+      
+      // Setup scroll listener on content area
+      const contentArea = document.getElementById('contentArea');
+      if (contentArea) {
+        // Remove existing listeners (if any)
+        const newContentArea = contentArea.cloneNode(true);
+        contentArea.parentNode.replaceChild(newContentArea, contentArea);
+        
+        setupScrollListener();
+      }
+    }
+
+    // === RESET PAGINATION ===
+    function resetPagination() {
+      paginationState = {
+        currentPage: 1,
+        itemsPerPage: 50,
+        totalItems: 0,
+        totalPages: 1,
+        isLoading: false,
+        lastScrollPosition: 0
+      };
+    }
+
+    // === UPDATE RENDER FUNCTIONS TO INITIALIZE PAGINATION ===
+    const originalRenderLeadsTable = renderLeadsTable;
+    renderLeadsTable = function(leads, filter) {
+      originalRenderLeadsTable.call(this, leads, filter);
+      
+      // Initialize pagination with metadata  
+      const total = leads ? leads.length : 0;
+      const totalPages = Math.ceil(total / paginationState.itemsPerPage);
+      initializePagination(total, totalPages);
+    };
   </script>
 </body>
 </html>
