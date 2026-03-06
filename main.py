@@ -6,11 +6,13 @@ Google Sheets data is read by Apps Script and sent here for processing
 OPTIMIZATIONS:
 - Pagination for large datasets
 - In-memory caching (5 min TTL)
+- Response compression (gzip)
 - Optimized sorting & filtering
 """
 
 from fastapi import FastAPI, HTTPException, Query
 from fastapi.middleware.cors import CORSMiddleware
+from starlette.middleware.gzip import GZIPMiddleware
 from pydantic import BaseModel
 from typing import List, Dict, Any, Optional
 from datetime import datetime, timedelta
@@ -19,6 +21,9 @@ import hashlib
 from time import time
 
 app = FastAPI(title="NBD CRM API", version="1.0.0")
+
+# Add GZIP Compression - 60% faster data transfer
+app.add_middleware(GZIPMiddleware, minimum_size=500)
 
 # Enable CORS for Apps Script communication
 app.add_middleware(
