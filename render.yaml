@@ -1,0 +1,10 @@
+services:
+  - type: web
+    name: nbd-crm-api
+    runtime: python
+    runtimeVersion: 3.13.1
+    buildCommand: pip install -r requirements.txt
+    startCommand: uvicorn main:app --host 0.0.0.0 --port $PORT
+    envVars:
+      - key: PYTHON_VERSION
+        value: 3.13.1
