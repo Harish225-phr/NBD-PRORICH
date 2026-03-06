@@ -74,6 +74,34 @@ def get_date_part(datetime_str):
         return ""
     return str(datetime_str).split('T')[0]
 
+def parse_datetime_safe(datetime_str):
+    """Safely parse datetime from various formats"""
+    if not datetime_str:
+        return datetime.fromisoformat('1970-01-01')
+    
+    try:
+        dt_str = str(datetime_str).strip()
+        # Handle Z timezone
+        if dt_str.endswith('Z'):
+            dt_str = dt_str[:-1] + '+00:00'
+        
+        # Try ISO format first
+        try:
+            return datetime.fromisoformat(dt_str)
+        except:
+            pass
+        
+        # Try just the date part (YYYY-MM-DD)
+        if 'T' in dt_str:
+            date_part = dt_str.split('T')[0]
+        else:
+            date_part = dt_str.split(' ')[0]
+        
+        return datetime.fromisoformat(date_part)
+    except:
+        # Fallback to epoch
+        return datetime.fromisoformat('1970-01-01')
+
 def build_user_map(users: Optional[List[Dict[str, Any]]]) -> Dict[str, Dict[str, str]]:
     """Build a map of user_id -> {name, role}"""
     user_map = {}
@@ -229,12 +257,14 @@ async def process_leads(request: FilterRequest):
             raise HTTPException(status_code=400, detail=f"Invalid role: {role}")
         
         # Sort by created_at descending (newest first)
-        filtered.sort(
-            key=lambda x: datetime.fromisoformat(
-                str(x.get('created_at', '1970-01-01')).replace('Z', '+00:00')
-            ) if x.get('created_at') else datetime.fromisoformat('1970-01-01'),
-            reverse=True
-        )
+        try:
+            filtered.sort(
+                key=lambda x: parse_datetime_safe(x.get('created_at')),
+                reverse=True
+            )
+        except Exception as sort_err:
+            # If sorting fails, skip it
+            print(f"Warning: Sorting failed: {str(sort_err)}")
         
         return {
             "success": True,
@@ -317,12 +347,13 @@ async def filter_leads(request: FilterRequest):
             filtered = [l for l in filtered if get_date_part(l.get('created_at', '')) <= end_date]
         
         # Sort by created_at descending
-        filtered.sort(
-            key=lambda x: datetime.fromisoformat(
-                str(x.get('created_at', '1970-01-01')).replace('Z', '+00:00')
-            ) if x.get('created_at') else datetime.fromisoformat('1970-01-01'),
-            reverse=True
-        )
+        try:
+            filtered.sort(
+                key=lambda x: parse_datetime_safe(x.get('created_at')),
+                reverse=True
+            )
+        except Exception as sort_err:
+            print(f"Warning: Sorting failed: {str(sort_err)}")
         
         return {
             "success": True,

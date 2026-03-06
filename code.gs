@@ -74,12 +74,16 @@ function callPythonAPI(endpoint, payload) {
   }
   
   try {
+    // Log the payload size to debug large data issues
+    const payloadStr = JSON.stringify(payload);
+    Logger.log('Payload size: ' + payloadStr.length + ' bytes');
+    
     const options = {
       method: 'post',
       contentType: 'application/json',
-      payload: JSON.stringify(payload),
+      payload: payloadStr,
       muteHttpExceptions: true,
-      timeout: 30000 // 30 second timeout
+      timeout: 120000 // 120 second timeout (increased from 30s)
     };
     
     const url = PYTHON_API_URL.replace(/\/$/, '') + endpoint;
@@ -89,14 +93,23 @@ function callPythonAPI(endpoint, payload) {
     const responseCode = response.getResponseCode();
     const responseText = response.getContentText();
     
+    Logger.log('Python API Response Code: ' + responseCode);
+    Logger.log('Response Text (first 500 chars): ' + responseText.substring(0, 500));
+    
     if (responseCode === 200) {
-      return JSON.parse(responseText);
+      try {
+        return JSON.parse(responseText);
+      } catch (parseErr) {
+        Logger.log('Error parsing Python response: ' + parseErr.message);
+        return null;
+      }
     } else {
       Logger.log('Python API error: ' + responseCode + ' - ' + responseText);
       return null;
     }
   } catch (e) {
     Logger.log('Error calling Python API: ' + e.message);
+    Logger.log('Error stack: ' + e.stack);
     return null;
   }
 }
