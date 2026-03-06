@@ -747,17 +747,7 @@ async def daily_dashboard(request: DailyDashboardRequest):
 @app.get("/health")
 async def health_check():
     """Health check endpoint"""
-    cache_size = len(cache)
-    return {
-        "status": "healthy",
-        "timestamp": datetime.now().isoformat(),
-        "optimizations": {
-            "pagination": "Enabled (50 items per page default)",
-            "caching": f"Enabled (TTL: 5min, current items: {cache_size})",
-            "compression": "Auto-handled by Uvicorn",
-            "workers": "Optimized for Render"
-        }
-    }
+    return {"status": "healthy", "timestamp": datetime.now().isoformat()}
 
 # ============================================================
 # ERROR HANDLING
