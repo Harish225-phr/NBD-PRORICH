@@ -6,8 +6,6 @@ Google Sheets data is read by Apps Script and sent here for processing
 
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.middleware.gzip import GZIPMiddleware
-from starlette.middleware.trustedhost import TrustedHostMiddleware
 from pydantic import BaseModel
 from typing import List, Dict, Any, Optional
 from datetime import datetime, timedelta
@@ -15,10 +13,7 @@ import json
 
 app = FastAPI(title="NBD CRM API", version="1.0.0")
 
-# Add GZip middleware for compression of responses
-app.add_middleware(GZIPMiddleware, minimum_size=1000)
-
-# Add CORS middleware
+# Enable CORS for Apps Script communication
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
