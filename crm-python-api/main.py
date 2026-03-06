@@ -6,6 +6,8 @@ Google Sheets data is read by Apps Script and sent here for processing
 
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.middleware.gzip import GZIPMiddleware
+from starlette.middleware.trustedhost import TrustedHostMiddleware
 from pydantic import BaseModel
 from typing import List, Dict, Any, Optional
 from datetime import datetime, timedelta
@@ -13,7 +15,10 @@ import json
 
 app = FastAPI(title="NBD CRM API", version="1.0.0")
 
-# Enable CORS for Apps Script communication
+# Add GZip middleware for compression of responses
+app.add_middleware(GZIPMiddleware, minimum_size=1000)
+
+# Add CORS middleware
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
@@ -692,4 +697,15 @@ async def root():
 
 if __name__ == "__main__":
     import uvicorn
-    uvicorn.run(app, host="0.0.0.0", port=10000)
+    uvicorn.run(
+        app,
+        host="0.0.0.0",
+        port=10000,
+        timeout_keep_alive=120,      # Keep connections alive longer
+        timeout_notify=120,            # Graceful shutdown timeout
+        limit_concurrency=1000,        # Allow more concurrent requests
+        limit_max_requests=10000,      # Restart worker after 10k requests
+        ws_max_size=16777216,          # 16MB for WebSocket payloads
+        access_log=False,              # Reduce overhead from logging
+        loop="uvloop"                 # Use faster event loop (optional, install uvloop)
+    )

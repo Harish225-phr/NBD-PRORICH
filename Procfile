@@ -1,1 +1,1 @@
-web: uvicorn main:app --host 0.0.0.0 --port $PORT
+web: uvicorn main:app --host 0.0.0.0 --port $PORT --timeout-keep-alive 120 --timeout-notify 120 --limit-concurrency 1000 --limit-max-requests 10000 --ws-max-size 16777216
