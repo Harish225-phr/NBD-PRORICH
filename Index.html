@@ -1,0 +1,905 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <base target="_top">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.2/css/all.min.css">
+  <style>
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      font-family: Inter, Arial, sans-serif;
+      background: #f3f6fb;
+      color: #0f172a;
+      min-height: 100vh;
+      overflow: hidden;
+    }
+    .hidden { display: none !important; }
+
+    .screen {
+      min-height: 100vh;
+      width: 100%;
+    }
+
+    .login-screen {
+      display: grid;
+      place-items: center;
+      background: radial-gradient(circle at 20% 20%, #1f3d7a, #0f244f 48%, #0b1a37 100%);
+      padding: 24px;
+    }
+
+    .login-card {
+      width: min(460px, 100%);
+      background: rgba(255, 255, 255, 0.96);
+      border-radius: 18px;
+      padding: 32px;
+      box-shadow: 0 26px 70px rgba(11, 26, 55, 0.28);
+      animation: slideIn .45s ease;
+    }
+
+    .brand {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      margin-bottom: 20px;
+    }
+
+    .logo {
+      width: 44px;
+      height: 44px;
+      border-radius: 10px;
+      background: linear-gradient(140deg, #1d4ed8, #22c55e);
+      display: grid;
+      place-items: center;
+      color: #fff;
+      font-size: 18px;
+    }
+
+    .brand h1 {
+      margin: 0;
+      font-size: 18px;
+      font-weight: 700;
+      color: #0f244f;
+    }
+
+    .brand p {
+      margin: 2px 0 0;
+      color: #64748b;
+      font-size: 12px;
+    }
+
+    .login-title {
+      margin: 0 0 8px;
+      font-size: 22px;
+      font-weight: 700;
+      color: #0f172a;
+    }
+
+    .login-subtitle {
+      margin: 0 0 22px;
+      color: #475569;
+      font-size: 14px;
+      line-height: 1.5;
+    }
+
+    .input-group {
+      margin-bottom: 14px;
+    }
+
+    .input-group label {
+      display: block;
+      font-size: 12px;
+      color: #334155;
+      margin-bottom: 7px;
+      font-weight: 600;
+    }
+
+    .input {
+      width: 100%;
+      border: 1px solid #d1d5db;
+      border-radius: 10px;
+      padding: 12px 14px;
+      font-size: 14px;
+      color: #0f172a;
+      outline: none;
+      transition: border-color .2s, box-shadow .2s;
+    }
+
+    .input:focus {
+      border-color: #2563eb;
+      box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.12);
+    }
+
+    .button {
+      border: none;
+      border-radius: 10px;
+      cursor: pointer;
+      font-weight: 600;
+      transition: transform .15s ease, box-shadow .2s ease, opacity .2s;
+    }
+
+    .button:hover { transform: translateY(-1px); }
+    .button:active { transform: translateY(0); }
+
+    .button-primary {
+      width: 100%;
+      background: linear-gradient(135deg, #1d4ed8, #2563eb);
+      color: #fff;
+      padding: 12px;
+      font-size: 14px;
+      box-shadow: 0 8px 20px rgba(37, 99, 235, 0.26);
+    }
+
+    .login-note {
+      margin-top: 12px;
+      color: #64748b;
+      font-size: 12px;
+      text-align: center;
+    }
+
+    .greeting-card {
+      margin-top: 18px;
+      background: linear-gradient(135deg, #e0edff, #e8f9ef);
+      border: 1px solid #c7def8;
+      border-radius: 12px;
+      padding: 12px 14px;
+      color: #1e293b;
+      font-size: 13px;
+      line-height: 1.45;
+      animation: fadeIn .4s ease;
+    }
+
+    .app-shell {
+      display: flex;
+      min-height: 100vh;
+      width: 100%;
+    }
+
+    .sidebar {
+      width: 260px;
+      background: #0f244f;
+      color: #fff;
+      padding: 18px 14px;
+      display: flex;
+      flex-direction: column;
+      transition: width .25s ease;
+      box-shadow: 8px 0 28px rgba(15, 36, 79, 0.15);
+      z-index: 2;
+    }
+
+    .sidebar.collapsed { width: 84px; }
+    .sidebar-top {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      margin-bottom: 16px;
+      gap: 10px;
+    }
+
+    .sidebar-title {
+      font-size: 14px;
+      font-weight: 700;
+      margin: 0;
+      white-space: nowrap;
+      overflow: hidden;
+    }
+
+    .collapse-btn {
+      width: 32px;
+      height: 32px;
+      border-radius: 8px;
+      border: 1px solid rgba(255,255,255,0.2);
+      background: rgba(255,255,255,0.12);
+      color: #fff;
+      cursor: pointer;
+    }
+
+    .menu {
+      display: flex;
+      flex-direction: column;
+      gap: 6px;
+      overflow-y: auto;
+      flex: 1;
+      padding-right: 4px;
+    }
+
+    .menu-btn {
+      display: flex;
+      align-items: center;
+      gap: 11px;
+      border: none;
+      border-radius: 10px;
+      background: transparent;
+      color: #dbeafe;
+      padding: 10px 12px;
+      cursor: pointer;
+      text-align: left;
+      transition: background .2s, color .2s;
+    }
+
+    .menu-btn:hover {
+      background: rgba(255,255,255,0.14);
+      color: #ffffff;
+    }
+
+    .menu-btn.active {
+      background: linear-gradient(135deg, rgba(34, 197, 94, .24), rgba(37, 99, 235, .2));
+      color: #fff;
+      border: 1px solid rgba(255,255,255,0.15);
+    }
+
+    .menu-btn i {
+      width: 20px;
+      text-align: center;
+      font-size: 14px;
+    }
+
+    .sidebar.collapsed .menu-btn span,
+    .sidebar.collapsed .sidebar-title,
+    .sidebar.collapsed .brand-text {
+      opacity: 0;
+      width: 0;
+      overflow: hidden;
+    }
+
+    .sidebar-user {
+      margin-top: 10px;
+      padding: 10px;
+      border-radius: 12px;
+      background: rgba(255,255,255,0.08);
+      font-size: 12px;
+      line-height: 1.4;
+    }
+
+    .sidebar.collapsed .sidebar-user { padding: 10px 6px; }
+
+    .main {
+      flex: 1;
+      display: flex;
+      flex-direction: column;
+      min-width: 0;
+    }
+
+    .topbar {
+      height: 68px;
+      background: #ffffff;
+      border-bottom: 1px solid #e2e8f0;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 0 24px;
+    }
+
+    .topbar h2 {
+      margin: 0;
+      font-size: 18px;
+      color: #0f172a;
+    }
+
+    .topbar small {
+      color: #64748b;
+    }
+
+    .content {
+      padding: 22px;
+      overflow-y: auto;
+      height: calc(100vh - 68px);
+    }
+
+    .grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(190px, 1fr));
+      gap: 14px;
+      margin-top: 14px;
+    }
+
+    .card {
+      background: #fff;
+      border-radius: 14px;
+      box-shadow: 0 8px 26px rgba(15, 23, 42, 0.08);
+      border: 1px solid #e6ebf3;
+      padding: 16px;
+      animation: fadeIn .28s ease;
+    }
+
+    .card h3 {
+      margin: 0 0 8px;
+      font-size: 15px;
+      color: #0f172a;
+    }
+
+    .welcome-card {
+      background: linear-gradient(135deg, #ffffff, #f7fbff);
+      border-left: 4px solid #22c55e;
+    }
+
+    .value {
+      margin-top: 8px;
+      font-size: 28px;
+      font-weight: 700;
+      color: #1d4ed8;
+    }
+
+    .muted {
+      color: #64748b;
+      margin: 4px 0 0;
+      font-size: 13px;
+      line-height: 1.5;
+    }
+
+    .embed-wrap {
+      background: #fff;
+      border-radius: 14px;
+      border: 1px solid #e2e8f0;
+      overflow: hidden;
+      box-shadow: 0 10px 24px rgba(15, 23, 42, 0.08);
+      height: calc(100vh - 132px);
+    }
+
+    .embed-frame {
+      width: 100%;
+      height: 100%;
+      border: 0;
+      background: #fff;
+    }
+
+    .task-input-wrap {
+      display: flex;
+      gap: 10px;
+      margin-bottom: 14px;
+    }
+
+    .task-input-wrap .input { margin: 0; }
+    .task-btn {
+      background: #16a34a;
+      color: #fff;
+      padding: 0 16px;
+    }
+
+    .task-list {
+      display: flex;
+      flex-direction: column;
+      gap: 9px;
+      max-height: 480px;
+      overflow-y: auto;
+      padding-right: 4px;
+    }
+
+    .task-item {
+      border: 1px solid #e2e8f0;
+      border-radius: 10px;
+      padding: 10px 12px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      background: #fff;
+    }
+
+    .task-left {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      min-width: 0;
+    }
+
+    .task-title {
+      font-size: 14px;
+      color: #0f172a;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      max-width: 520px;
+    }
+
+    .task-title.done {
+      color: #64748b;
+      text-decoration: line-through;
+    }
+
+    .tiny-btn {
+      width: 30px;
+      height: 30px;
+      border: none;
+      border-radius: 8px;
+      cursor: pointer;
+      background: #f1f5f9;
+      color: #0f172a;
+    }
+
+    .tiny-btn:hover { background: #e2e8f0; }
+
+    .empty {
+      padding: 20px;
+      border: 1px dashed #cbd5e1;
+      border-radius: 12px;
+      color: #64748b;
+      text-align: center;
+      background: #fff;
+    }
+
+    .badge {
+      background: #d1fae5;
+      color: #065f46;
+      padding: 4px 8px;
+      border-radius: 999px;
+      font-size: 11px;
+      font-weight: 600;
+    }
+
+    @keyframes slideIn {
+      from { transform: translateY(12px); opacity: 0; }
+      to { transform: translateY(0); opacity: 1; }
+    }
+
+    @keyframes fadeIn {
+      from { opacity: 0; transform: translateY(8px); }
+      to { opacity: 1; transform: translateY(0); }
+    }
+
+    @media (max-width: 980px) {
+      .sidebar { width: 84px; }
+      .sidebar-title, .menu-btn span, .brand-text, .sidebar-user { display: none; }
+      .content { padding: 16px; }
+      .task-title { max-width: 260px; }
+    }
+  </style>
+</head>
+<body>
+
+<div id="loginScreen" class="screen login-screen">
+  <div class="login-card">
+    <div class="brand">
+      <div class="logo"><i class="fa-solid fa-leaf"></i></div>
+      <div class="brand-text">
+        <h1>ProRichAgro HR System</h1>
+        <p>Employee Dashboard Portal</p>
+      </div>
+    </div>
+
+    <h2 class="login-title">Employee Login</h2>
+    <p class="login-subtitle">Sign in with your company email to access HR dashboards, updates, and personal task tracking.</p>
+
+    <div class="input-group">
+      <label for="emailInput">Work Email</label>
+      <input id="emailInput" class="input" type="email" placeholder="name@prorichagro.com" />
+    </div>
+
+    <button id="loginBtn" class="button button-primary">Enter Dashboard</button>
+    <div id="loginNote" class="login-note">Detecting Google account...</div>
+    <div id="welcomePreview" class="greeting-card hidden"></div>
+  </div>
+</div>
+
+<div id="appScreen" class="screen hidden">
+  <div class="app-shell">
+    <aside id="sidebar" class="sidebar">
+      <div class="sidebar-top">
+        <p id="sidebarTitle" class="sidebar-title">ProRichAgro HR</p>
+        <button id="collapseBtn" class="collapse-btn" title="Toggle sidebar"><i class="fa-solid fa-bars"></i></button>
+      </div>
+
+      <nav class="menu" id="menuContainer"></nav>
+
+      <div class="sidebar-user" id="sidebarUser"></div>
+    </aside>
+
+    <section class="main">
+      <header class="topbar">
+        <div>
+          <h2 id="viewTitle">Dashboard</h2>
+          <small id="viewSubTitle">Welcome to your HR workspace</small>
+        </div>
+        <span class="badge" id="todayDate"></span>
+      </header>
+      <main class="content" id="contentArea"></main>
+    </section>
+  </div>
+</div>
+
+<script>
+const appState = {
+  user: null,
+  stats: null,
+  links: null,
+  tasks: [],
+  currentView: "dashboard",
+  sidebarCollapsed: false
+};
+
+const menuItems = [
+  { id: "dashboard", label: "Dashboard", icon: "fa-gauge-high" },
+  { id: "master", label: "Employee Master", icon: "fa-users" },
+  { id: "new", label: "New Joinee", icon: "fa-user-plus" },
+  { id: "exit", label: "Exit", icon: "fa-user-minus" },
+  { id: "hiring", label: "Hiring Conversion", icon: "fa-chart-line" },
+  { id: "personal", label: "Personal Details", icon: "fa-id-card" },
+  { id: "delegation", label: "Delegation", icon: "fa-share-nodes" },
+  { id: "tasks", label: "My Tasks", icon: "fa-list-check" },
+  { id: "logout", label: "Logout", icon: "fa-right-from-bracket" }
+];
+
+const viewMeta = {
+  dashboard: { title: "Dashboard", subtitle: "Overview of your HR workspace" },
+  master: { title: "Employee Master", subtitle: "View or edit employee master data" },
+  new: { title: "New Joinee", subtitle: "Track and update new joinee records" },
+  exit: { title: "Exit", subtitle: "Manage exit process and records" },
+  hiring: { title: "Hiring Conversion", subtitle: "Review hiring conversion details" },
+  personal: { title: "Personal Details", subtitle: "Access employee personal details" },
+  delegation: { title: "Delegation", subtitle: "Delegation portal embedded in dashboard" },
+  tasks: { title: "My Tasks", subtitle: "Create and track your daily personal tasks" }
+};
+
+document.addEventListener("DOMContentLoaded", init);
+
+function init() {
+  bindEvents();
+  loadInitialContext();
+}
+
+function bindEvents() {
+  document.getElementById("loginBtn").addEventListener("click", onLogin);
+  document.getElementById("emailInput").addEventListener("keydown", function (event) {
+    if (event.key === "Enter") {
+      onLogin();
+    }
+  });
+  document.getElementById("collapseBtn").addEventListener("click", toggleSidebar);
+}
+
+function loadInitialContext() {
+  google.script.run
+    .withSuccessHandler(function (ctx) {
+      appState.user = ctx;
+      const emailInput = document.getElementById("emailInput");
+      if (ctx && ctx.email) {
+        emailInput.value = ctx.email;
+        document.getElementById("loginNote").textContent = "Google account detected. You can continue directly.";
+      } else {
+        document.getElementById("loginNote").textContent = "Google account not auto-detected. Enter your work email.";
+      }
+    })
+    .withFailureHandler(function () {
+      document.getElementById("loginNote").textContent = "Please enter your work email to continue.";
+    })
+    .getUserContext();
+}
+
+function onLogin() {
+  const emailInput = document.getElementById("emailInput");
+  const email = (emailInput.value || "").trim().toLowerCase();
+  if (!email || !email.includes("@")) {
+    alert("Please enter a valid work email.");
+    return;
+  }
+
+  if (!appState.user) {
+    appState.user = { company: "ProRichAgro" };
+  }
+  appState.user.email = email;
+  appState.user.name = getNameFromEmail(email);
+
+  const preview = document.getElementById("welcomePreview");
+  preview.classList.remove("hidden");
+  preview.innerHTML = "Hello " + escapeHtml(appState.user.name) + ", welcome to ProRichAgro HR System.<br>We’re happy to have you here. Have a productive day!";
+
+  setTimeout(function () {
+    enterDashboard();
+  }, 450);
+}
+
+function enterDashboard() {
+  document.getElementById("loginScreen").classList.add("hidden");
+  document.getElementById("appScreen").classList.remove("hidden");
+
+  document.getElementById("todayDate").textContent = formatDate(new Date());
+  document.getElementById("sidebarUser").textContent = appState.user.name + "\n" + appState.user.email;
+  renderMenu();
+  loadDashboard();
+}
+
+function renderMenu() {
+  const menu = document.getElementById("menuContainer");
+  menu.innerHTML = "";
+
+  menuItems.forEach(function (item) {
+    const button = document.createElement("button");
+    button.className = "menu-btn" + (item.id === appState.currentView ? " active" : "");
+    button.dataset.id = item.id;
+    button.innerHTML = '<i class="fa-solid ' + item.icon + '"></i><span>' + item.label + '</span>';
+    button.addEventListener("click", function () {
+      handleMenuClick(item.id);
+    });
+    menu.appendChild(button);
+  });
+}
+
+function handleMenuClick(view) {
+  if (view === "logout") {
+    logout();
+    return;
+  }
+
+  appState.currentView = view;
+  updateTopBar(view);
+  renderMenu();
+
+  if (view === "dashboard") {
+    loadDashboard();
+    return;
+  }
+
+  if (view === "tasks") {
+    loadTasksView();
+    return;
+  }
+
+  if (view === "delegation") {
+    renderEmbed(appState.links.delegation);
+    return;
+  }
+
+  const url = appState.links && appState.links.sheets ? appState.links.sheets[view] : "";
+  if (!url) {
+    renderUnavailable("This module is not configured yet. Please set the sheet ID in Apps Script backend.");
+    return;
+  }
+  renderEmbed(url);
+}
+
+function loadDashboard() {
+  appState.currentView = "dashboard";
+  updateTopBar("dashboard");
+  renderMenu();
+
+  google.script.run
+    .withSuccessHandler(function (stats) {
+      appState.stats = stats;
+      google.script.run
+        .withSuccessHandler(function (links) {
+          appState.links = links;
+          renderDashboardHome();
+          loadTasks();
+        })
+        .withFailureHandler(function () {
+          renderUnavailable("Unable to load menu links. Please refresh.");
+        })
+        .getMenuLinks();
+    })
+    .withFailureHandler(function () {
+      renderUnavailable("Unable to load dashboard data. Please refresh.");
+    })
+    .getDashboardData();
+}
+
+function renderDashboardHome() {
+  const nowGreeting = getTimeGreeting();
+  const content = document.getElementById("contentArea");
+  const stats = appState.stats || {};
+
+  content.innerHTML =
+    '<div class="card welcome-card">' +
+      '<h3>' + nowGreeting + " " + escapeHtml(appState.user.name) + ' 👋</h3>' +
+      '<p class="muted">Welcome to ProRichAgro Employee System. Let\'s make today productive.</p>' +
+      '<p class="muted"><strong>Employee:</strong> ' + escapeHtml(appState.user.email) + '</p>' +
+      '<p class="muted"><strong>Today:</strong> ' + escapeHtml(formatDate(new Date())) + '</p>' +
+      '<p class="muted"><strong>Motivation:</strong> ' + escapeHtml(stats.motivationalMessage || "Make progress one step at a time.") + '</p>' +
+    '</div>' +
+    '<div class="grid">' +
+      metricCard("Total Employees", stats.totalEmployees || 0) +
+      metricCard("New Joinees", stats.totalJoinees || 0) +
+      metricCard("Exits", stats.totalExits || 0) +
+      metricCard("Hiring Conversion", stats.totalHiring || 0) +
+      metricCard("Active Employees", stats.activeEmployees || 0) +
+    '</div>';
+}
+
+function metricCard(label, value) {
+  return '<div class="card"><h3>' + escapeHtml(label) + '</h3><div class="value">' + Number(value) + '</div></div>';
+}
+
+function renderEmbed(url) {
+  const content = document.getElementById("contentArea");
+  content.innerHTML =
+    '<div class="embed-wrap">' +
+      '<iframe class="embed-frame" src="' + encodeURI(url) + '"></iframe>' +
+    '</div>';
+}
+
+function loadTasksView() {
+  updateTopBar("tasks");
+  const content = document.getElementById("contentArea");
+  content.innerHTML =
+    '<div class="card">' +
+      '<h3>Today\'s Tasks</h3>' +
+      '<p class="muted">Add reminders so nothing important is missed.</p>' +
+      '<div class="task-input-wrap">' +
+        '<input id="taskInput" class="input" type="text" placeholder="e.g. Submit weekly report" />' +
+        '<button id="addTaskBtn" class="button task-btn">Add Task</button>' +
+      '</div>' +
+      '<div id="taskList" class="task-list"></div>' +
+    '</div>';
+
+  document.getElementById("addTaskBtn").addEventListener("click", addTask);
+  document.getElementById("taskInput").addEventListener("keydown", function (event) {
+    if (event.key === "Enter") {
+      addTask();
+    }
+  });
+
+  loadTasks();
+}
+
+function loadTasks() {
+  if (!appState.user || !appState.user.email) {
+    return;
+  }
+
+  google.script.run
+    .withSuccessHandler(function (tasks) {
+      appState.tasks = Array.isArray(tasks) ? tasks : [];
+      renderTasks();
+    })
+    .withFailureHandler(function () {
+      appState.tasks = [];
+      renderTasks();
+    })
+    .getTasks(appState.user.email);
+}
+
+function addTask() {
+  const input = document.getElementById("taskInput");
+  const title = input ? input.value.trim() : "";
+  if (!title) {
+    return;
+  }
+
+  google.script.run
+    .withSuccessHandler(function (tasks) {
+      appState.tasks = tasks || [];
+      input.value = "";
+      renderTasks();
+    })
+    .withFailureHandler(function () {
+      alert("Unable to add task right now.");
+    })
+    .addTask(appState.user.email, title);
+}
+
+function toggleTask(id) {
+  google.script.run
+    .withSuccessHandler(function (tasks) {
+      appState.tasks = tasks || [];
+      renderTasks();
+    })
+    .withFailureHandler(function () {
+      alert("Unable to update task.");
+    })
+    .toggleTask(appState.user.email, id);
+}
+
+function deleteTask(id) {
+  google.script.run
+    .withSuccessHandler(function (tasks) {
+      appState.tasks = tasks || [];
+      renderTasks();
+    })
+    .withFailureHandler(function () {
+      alert("Unable to delete task.");
+    })
+    .deleteTask(appState.user.email, id);
+}
+
+function renderTasks() {
+  const list = document.getElementById("taskList");
+  if (!list) {
+    return;
+  }
+
+  if (!appState.tasks.length) {
+    list.innerHTML = '<div class="empty">No tasks for today. Add your first task now.</div>';
+    return;
+  }
+
+  list.innerHTML = "";
+  appState.tasks.forEach(function (task) {
+    const item = document.createElement("div");
+    item.className = "task-item";
+
+    const left = document.createElement("div");
+    left.className = "task-left";
+
+    const check = document.createElement("button");
+    check.className = "tiny-btn";
+    check.title = task.completed ? "Mark incomplete" : "Mark completed";
+    check.innerHTML = task.completed ? '<i class="fa-solid fa-circle-check"></i>' : '<i class="fa-regular fa-circle"></i>';
+    check.addEventListener("click", function () { toggleTask(task.id); });
+
+    const title = document.createElement("div");
+    title.className = "task-title" + (task.completed ? " done" : "");
+    title.textContent = task.title;
+
+    left.appendChild(check);
+    left.appendChild(title);
+
+    const del = document.createElement("button");
+    del.className = "tiny-btn";
+    del.title = "Delete task";
+    del.innerHTML = '<i class="fa-solid fa-trash"></i>';
+    del.addEventListener("click", function () { deleteTask(task.id); });
+
+    item.appendChild(left);
+    item.appendChild(del);
+    list.appendChild(item);
+  });
+}
+
+function updateTopBar(view) {
+  const meta = viewMeta[view] || viewMeta.dashboard;
+  document.getElementById("viewTitle").textContent = meta.title;
+  document.getElementById("viewSubTitle").textContent = meta.subtitle;
+}
+
+function toggleSidebar() {
+  appState.sidebarCollapsed = !appState.sidebarCollapsed;
+  const sidebar = document.getElementById("sidebar");
+  sidebar.classList.toggle("collapsed", appState.sidebarCollapsed);
+}
+
+function renderUnavailable(message) {
+  document.getElementById("contentArea").innerHTML = '<div class="empty">' + escapeHtml(message) + '</div>';
+}
+
+function logout() {
+  appState.currentView = "dashboard";
+  appState.tasks = [];
+  document.getElementById("appScreen").classList.add("hidden");
+  document.getElementById("loginScreen").classList.remove("hidden");
+  document.getElementById("welcomePreview").classList.add("hidden");
+  document.getElementById("emailInput").focus();
+}
+
+function getNameFromEmail(email) {
+  const part = (email || "").split("@")[0] || "Employee";
+  return part
+    .replace(/[._-]+/g, " ")
+    .trim()
+    .split(" ")
+    .filter(Boolean)
+    .map(function (word) {
+      return word.charAt(0).toUpperCase() + word.slice(1).toLowerCase();
+    })
+    .join(" ");
+}
+
+function getTimeGreeting() {
+  const hour = new Date().getHours();
+  if (hour < 12) return "Good Morning";
+  if (hour < 17) return "Good Afternoon";
+  return "Good Evening";
+}
+
+function formatDate(date) {
+  return date.toLocaleDateString(undefined, {
+    weekday: "long",
+    day: "2-digit",
+    month: "short",
+    year: "numeric"
+  });
+}
+
+function escapeHtml(value) {
+  return String(value || "")
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&#039;");
+}
+
+</script>
+
+</body>
+</html>
