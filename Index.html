@@ -2148,43 +2148,23 @@
     function loadDailyDashboard(dateStr) {
       showLoading();
       
-      // Fetch leads first
+      // Use Apps Script directly for reliable data
       google.script.run
-        .withSuccessHandler((sheetLeads) => {
-          // Then fetch logs
-          google.script.run
-            .withSuccessHandler((logs) => {
-              if (!logs.success) {
-                hideLoading();
-                showToast('Error fetching logs', 'error');
-                return;
-              }
-              // Call Python API
-              callPythonAPI('/daily-dashboard', {
-                leads: sheetLeads,
-                tele_activity_log: logs.tele,
-                meeting_log: logs.meeting,
-                users: logs.users,
-                user_id: currentUser.user_id,
-                role: currentUser.role,
-                date_str: dateStr
-              }).then(result => {
-                hideLoading();
-                if (result && result.success) {
-                  renderDailyDashboard({ date: dateStr, stats: result.stats, activities: result.activities, role: currentUser.role });
-                } else {
-                  showToast(result?.detail || result?.message || 'Error from Python API', 'error');
-                }
-              }).catch(err => {
-                hideLoading();
-                showToast('Python API Connection Error', 'error');
-              });
-            })
-            .withFailureHandler(() => { hideLoading(); showToast('Error fetching logs', 'error'); })
-            .getLogsForDashboard();
+        .withSuccessHandler((result) => {
+          hideLoading();
+          if (result && result.success) {
+            console.log('Daily Dashboard Data:', result);
+            renderDailyDashboard(result);
+          } else {
+            showToast(result?.message || 'Error loading daily dashboard', 'error');
+          }
         })
-        .withFailureHandler(() => { hideLoading(); showToast('Error fetching leads', 'error'); })
-        .getAllLeadsFromSheet();
+        .withFailureHandler((err) => {
+          hideLoading();
+          console.error('Error:', err);
+          showToast('Error loading daily dashboard: ' + err, 'error');
+        })
+        .getDailyDashboardData(currentUser.user_id, currentUser.role, dateStr);
     }
 
     function renderDailyDashboard(data) {
@@ -2360,42 +2340,45 @@
     function loadAdminDailyDashboard(dateStr) {
       showLoading();
 
-      // Fetch leads first
+      // Fetch leads from sheet first
       google.script.run
         .withSuccessHandler((sheetLeads) => {
-          // Then fetch logs
-          google.script.run
-            .withSuccessHandler((logs) => {
-              if (!logs.success) {
-                hideLoading();
-                showToast('Error fetching logs', 'error');
-                return;
-              }
-              // Call Python API
-              callPythonAPI('/daily-dashboard', {
-                leads: sheetLeads,
-                tele_activity_log: logs.tele,
-                meeting_log: logs.meeting,
-                users: logs.users,
-                user_id: currentUser.user_id,
-                role: currentUser.role,
-                date_str: dateStr
-              }).then(result => {
-                hideLoading();
-                if (result && result.success) {
-                  renderAdminDailyDashboard({ date: dateStr, stats: result.stats, activities: result.activities });
-                } else {
-                  showToast(result?.detail || result?.message || 'Error from Python API', 'error');
-                }
-              }).catch(err => {
-                hideLoading();
-                showToast('Python API Connection Error', 'error');
-              });
-            })
-            .withFailureHandler(() => { hideLoading(); showToast('Error fetching logs', 'error'); })
-            .getLogsForDashboard();
+          console.log('Leads from sheet:', sheetLeads.length);
+          
+          // Try Python API first (using daily-dashboard endpoint with ADMIN role)
+          callPythonAPI('/daily-dashboard', {
+            leads: sheetLeads,
+            user_id: currentUser.user_id,
+            role: currentUser.role,
+            date: dateStr
+          }).then(result => {
+            if (!result || !result.success) {
+              console.log('Python API failed, using Apps Script fallback for admin dashboard...');
+              google.script.run
+                .withSuccessHandler((result) => {
+                  hideLoading();
+                  if (result.success) {
+                    renderAdminDailyDashboard(result);
+                  } else {
+                    showToast(result.message || 'Error', 'error');
+                  }
+                })
+                .withFailureHandler(() => {
+                  hideLoading();
+                  showToast('Error loading admin dashboard', 'error');
+                })
+                .getAdminDailySummary(dateStr);
+              return;
+            }
+
+            hideLoading();
+            renderAdminDailyDashboard(result);
+          });
         })
-        .withFailureHandler(() => { hideLoading(); showToast('Error fetching leads', 'error'); })
+        .withFailureHandler(() => {
+          hideLoading();
+          showToast('Error loading admin dashboard', 'error');
+        })
         .getAllLeadsFromSheet();
     }
 
@@ -2672,13 +2655,6 @@
               <div class="stat-label">Created Today</div>
             </div>
           `;
-          html += `</div>
-            <div style="margin-top:20px;display:flex;justify-content:flex-end;">
-              <button class="btn btn-primary" onclick="promptEmailSCReport()">
-                <i class="fas fa-paper-plane" style="margin-right:8px;"></i> Email Daily Report
-              </button>
-            </div>
-          <div style="display:none;" id="statsDataForReport">${JSON.stringify(stats)}</div>`;
           break;
 
         case 'ADMIN':
@@ -2731,32 +2707,6 @@
 
       html += '</div>';
       document.getElementById('contentArea').innerHTML = html;
-    }
-
-    // === SC EMAIL REPORT ===
-    function promptEmailSCReport() {
-      const email = prompt("Enter senior's email address to send the daily report:");
-      if (!email) return;
-      
-      const statsJson = document.getElementById('statsDataForReport').textContent;
-      let stats = {};
-      try { stats = JSON.parse(statsJson); } catch(e){}
-      
-      showLoading('Sending report...');
-      google.script.run
-        .withSuccessHandler((result) => {
-          hideLoading();
-          if(result.success) {
-            showToast('Report sent successfully!', 'success');
-          } else {
-            showToast(result.message || 'Error sending report', 'error');
-          }
-        })
-        .withFailureHandler((err) => {
-          hideLoading();
-          showToast('Failed to send report: ' + err, 'error');
-        })
-        .sendSCReportEmail(email, stats, currentUser.name);
     }
 
     // === LEADS TABLE ===
@@ -3181,11 +3131,7 @@
         }
       }
       if (dateFilter && dateFilter !== 'ALL') {
-        filteredLeads = filteredLeads.filter(l => {
-          const createdDate = String(l.created_at || '').split('T')[0];
-          const updatedDate = String(l.updated_at || '').split('T')[0];
-          return createdDate === dateFilter || updatedDate === dateFilter;
-        });
+        filteredLeads = filteredLeads.filter(l => String(l.created_at || '').split('T')[0] === dateFilter);
       }
 
       // Count per stage for filter buttons
@@ -4507,11 +4453,7 @@
       if (dateFilter && dateFilter !== 'ALL') {
         filteredLeads = leads.filter(l => {
           const meetingDate = String(l.meeting_datetime || '').split('T')[0];
-          const createdDate = String(l.created_at || '').split('T')[0];
-          const updatedDate = String(l.updated_at || '').split('T')[0];
-          return meetingDate === dateFilter || 
-                 (!l.meeting_datetime && createdDate === dateFilter) ||
-                 (!l.meeting_datetime && updatedDate === dateFilter);
+          return meetingDate === dateFilter;
         });
       }
 
