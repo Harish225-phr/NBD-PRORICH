@@ -1652,13 +1652,6 @@
     let currentLeads = [];
     let telecallers = [];
     let salesPersons = [];
-    
-    // === PAGINATION STATE ===
-    let currentLeadsPage = 1;
-    let currentLeadsLimit = 50;
-    let currentLeadsTotal = 0;
-    let currentLeadsTotalPages = 0;
-    let currentLeadsFilter = 'ALL';
 
     // === INDIAN STATES & UTs CONSTANT ===
     const INDIAN_STATES = [
@@ -1914,6 +1907,7 @@
           navHTML += `
             <div class="nav-item" data-page="new-lead"><i class="fas fa-plus-circle"></i> Create Lead</div>
             <div class="nav-item" data-page="today"><i class="fas fa-calendar-day"></i> Today's Leads</div>
+            <div class="nav-item" data-page="yesterday"><i class="fas fa-calendar-day"></i> Yesterday's Leads</div>
             <div class="nav-item" data-page="followup"><i class="fas fa-clock"></i> Follow-up Due</div>
             <div class="nav-item" data-page="all"><i class="fas fa-list"></i> All My Leads</div>
           `;
@@ -1933,6 +1927,7 @@
         case 'SALES PERSON':
           navHTML += `
             <div class="nav-item" data-page="meetings-today"><i class="fas fa-calendar-day"></i> Today's Leads</div>
+            <div class="nav-item" data-page="meetings-yesterday"><i class="fas fa-calendar-day"></i> Yesterday's Leads</div>
             <div class="nav-item" data-page="meetings-followup"><i class="fas fa-clock"></i> Follow-up</div>
             <div class="nav-item" data-page="meetings-all"><i class="fas fa-handshake"></i> All Leads</div>
           `;
@@ -1971,6 +1966,9 @@
         case 'today':
           loadLeadsTable('TODAY');
           break;
+        case 'yesterday':
+          loadLeadsTable('YESTERDAY');
+          break;
         case 'followup':
           loadLeadsTable('FOLLOWUP_DUE');
           break;
@@ -2000,6 +1998,9 @@
           break;
         case 'meetings-today':
           loadSalesMeetings('TODAY');
+          break;
+        case 'meetings-yesterday':
+          loadSalesMeetings('YESTERDAY');
           break;
         case 'meetings-all':
           loadSalesMeetings('ALL');
@@ -2716,12 +2717,6 @@
       console.log('User ID:', currentUser ? currentUser.user_id : 'NO USER');
       console.log('Role:', currentUser ? currentUser.role : 'NO ROLE');
       
-      // OPTIMIZATION: Track pagination state
-      currentLeadsFilter = filter;
-      currentLeadsPage = 1;
-      currentLeadsTotalPages = 0;
-      currentLeadsTotal = 0;
-      
       // Update page title and nav
       document.getElementById('pageTitle').textContent = getFilterTitle(filter);
       showLoading();
@@ -2749,14 +2744,12 @@
         .withSuccessHandler((sheetLeads) => {
           console.log('Leads from sheet:', sheetLeads.length);
           
-          // Try Python API with pagination (page 1, limit 50)
+          // Try Python API with the leads data
           callPythonAPI('/process-leads', {
             leads: sheetLeads,
             user_id: currentUser.user_id,
             role: currentUser.role,
-            filter_type: filter,
-            page: 1,
-            limit: 50
+            filter_type: filter
           }).then(result => {
             // If Python API fails, fallback to Apps Script
             if (!result || !result.success) {
@@ -2767,9 +2760,6 @@
                   hideLoading();
                   if (result && result.success) {
                     currentLeads = result.leads || [];
-                    currentLeadsTotal = currentLeads.length;
-                    currentLeadsTotalPages = 1;
-                    currentLeadsPage = 1;
                     renderLeadsTable(currentLeads, filter);
                   } else {
                     document.getElementById('contentArea').innerHTML = `<div class="card"><div class="empty-state"><i class="fas fa-inbox"></i><h3>No leads found</h3></div></div>`;
@@ -2784,17 +2774,12 @@
               return;
             }
 
-            // Python API succeeded - use the results (paginated)
-            console.log('=== Python API SUCCESS (Paginated) ===', result);
+            // Python API succeeded - use the results
+            console.log('=== Python API SUCCESS ===', result);
             hideLoading();
             currentLeads = result.leads || [];
-            currentLeadsTotal = result.total || 0;
-            currentLeadsTotalPages = result.total_pages || 1;
-            currentLeadsPage = result.page || 1;
-            currentLeadsLimit = result.limit || 50;
-            
-            console.log('Leads count:', currentLeads.length, 'Total:', currentLeadsTotal, 'Pages:', currentLeadsTotalPages);
-            renderLeadsTable(currentLeads, filter, true);
+            console.log('Leads count:', currentLeads.length);
+            renderLeadsTable(currentLeads, filter);
           });
         })
         .withFailureHandler((err) => {
@@ -2808,6 +2793,7 @@
     function getFilterTitle(filter) {
       const titles = {
         'TODAY': "Today's Leads",
+        'YESTERDAY': "Yesterday's Leads",
         'FOLLOWUP_DUE': 'Follow-up Due',
         'ALL': 'All Leads',
         'NOT_QUALIFIED': 'Verification Queue',
@@ -2818,10 +2804,9 @@
       return titles[filter] || 'Leads';
     }
 
-    function renderLeadsTable(leads, filter, withPagination = false) {
+    function renderLeadsTable(leads, filter) {
       console.log('=== RENDER LEADS TABLE ===');
       console.log('Leads received:', leads);
-      console.log('Pagination enabled:', withPagination, 'Page:', currentLeadsPage, 'Total Pages:', currentLeadsTotalPages);
       console.log('Leads count:', leads ? leads.length : 0);
       console.log('Filter:', filter);
       console.log('Current User:', currentUser);
@@ -2896,7 +2881,7 @@
       const html = `
         <div class="card">
           <div class="card-header" style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 15px;">
-            <h3><i class="fas fa-list"></i> ${leads.length} Lead${leads.length > 1 ? 's' : ''} ${currentLeadsTotal > 0 ? '/ ' + currentLeadsTotal + ' Total' : ''} ${withPagination ? '(Page ' + currentLeadsPage + '/' + currentLeadsTotalPages + ')' : ''}</h3>
+            <h3><i class="fas fa-list"></i> ${leads.length} Lead${leads.length > 1 ? 's' : ''}</h3>
             <div style="display: flex; gap: 8px; align-items: center;">
               <input type="text" id="searchLeadsInput" placeholder="Search by Lead ID, Phone or Name..." style="padding: 8px 12px; border: 1px solid var(--gray-300); border-radius: 4px; font-size: 14px; flex: 1; min-width: 250px;">
               <button class="btn btn-primary" onclick="applyLeadsSearch()"><i class="fas fa-search"></i> Search</button>
@@ -2925,13 +2910,6 @@
                 </tbody>
               </table>
             </div>
-            ${withPagination && currentLeadsPage < currentLeadsTotalPages ? `
-              <div style="display: flex; justify-content: center; margin-top: 20px; padding-top: 20px; border-top: 1px solid var(--gray-200);">
-                <button class="btn btn-primary" onclick="loadMoreLeads()">
-                  <i class="fas fa-arrow-down"></i> Load More (${currentLeadsPage}/${currentLeadsTotalPages})
-                </button>
-              </div>
-            ` : ''}
           </div>
         </div>
       `;
@@ -2940,117 +2918,6 @@
       document.getElementById('contentArea').innerHTML = html;
       console.log('HTML set complete');
       console.log('=== END RENDER ===');
-    }
-
-    // === LOAD MORE LEADS (PAGINATION) ===
-    function loadMoreLeads() {
-      if (currentLeadsPage >= currentLeadsTotalPages) {
-        showToast('No more leads to load', 'info');
-        return;
-      }
-      
-      const nextPage = currentLeadsPage + 1;
-      console.log('Loading page', nextPage, 'of', currentLeadsTotalPages);
-      
-      showLoading();
-      
-      // Fetch leads from Apps Script
-      google.script.run
-        .withSuccessHandler((sheetLeads) => {
-          // Try Python API for next page
-          callPythonAPI('/process-leads', {
-            leads: sheetLeads,
-            user_id: currentUser.user_id,
-            role: currentUser.role,
-            filter_type: currentLeadsFilter,
-            page: nextPage,
-            limit: currentLeadsLimit
-          }).then(result => {
-            hideLoading();
-            
-            if (!result || !result.success) {
-              showToast('Error loading more leads', 'error');
-              return;
-            }
-
-            // Append new leads to current list
-            const newLeads = result.leads || [];
-            currentLeads = currentLeads.concat(newLeads);
-            currentLeadsPage = result.page || nextPage;
-            currentLeadsTotalPages = result.total_pages || currentLeadsTotalPages;
-            currentLeadsTotal = result.total || currentLeadsTotal;
-            
-            console.log('Appended', newLeads.length, 'leads. Total now:', currentLeads.length);
-            
-            // Re-render only the table body with all leads so far
-            let tableRows = '';
-            currentLeads.forEach((lead, idx) => {
-              const actionBtn = getActionButtonForLead(lead);
-              const isPassedOut = (lead.current_stage || '').toUpperCase() !== 'TELE';
-              const rowStyle = isPassedOut ? 'style="background-color: var(--gray-50); opacity: 0.9;"' : '';
-              tableRows += `
-                <tr ${rowStyle}>
-                  <td>
-                    <strong>${lead.lead_id || '-'}</strong>
-                    ${isPassedOut ? '<div style="font-size: 11px; color: var(--gray-500); margin-top: 4px;">Passed Out</div>' : ''}
-                  </td>
-                  <td>
-                    <div><strong>${lead.customer_name || '-'}</strong></div>
-                    <div style="font-size: 12px; color: var(--gray-500);">${lead.company || ''}</div>
-                  </td>
-                  <td>
-                    <div><a href="tel:${lead.phone}">${lead.phone || '-'}</a></div>
-                    <div style="font-size: 12px; color: var(--gray-500);">${lead.email || ''}</div>
-                  </td>
-                  <td>${lead.lead_source || '-'}</td>
-                  <td><span class="badge badge-${lead.lead_type === 'Export' ? 'success' : 'secondary'}">${lead.lead_type || 'N/A'}</span></td>
-                  <td>${lead.state || '-'}</td>
-                  <td>
-                    <div style="max-width: 150px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;" title="${lead.requirement || ''}">${lead.requirement || '-'}</div>
-                  </td>
-                  <td>
-                    ${getStatusBadge(lead.current_status || 'NEW')}
-                  </td>
-                  <td>${formatDate(lead.enquiry_date || lead.created_at)}</td>
-                  <td style="text-align: center; white-space: nowrap; min-width: 120px;">
-                    ${actionBtn}
-                  </td>
-                </tr>
-              `;
-            });
-            
-            // Update table body
-            document.getElementById('leadsTableBody').innerHTML = tableRows;
-            
-            // Update pagination info and load more button if needed
-            const cardHeader = document.querySelector('.card-header h3');
-            if (cardHeader) {
-              cardHeader.textContent = `Leads - ${currentLeads.length} Shown / ${currentLeadsTotal} Total (Page ${currentLeadsPage}/${currentLeadsTotalPages})`;
-            }
-            
-            // Update or remove load more button
-            const loadMoreDiv = document.querySelector('[style*="justify-content: center"]');
-            if (loadMoreDiv) {
-              if (currentLeadsPage < currentLeadsTotalPages) {
-                loadMoreDiv.innerHTML = `
-                  <button class="btn btn-primary" onclick="loadMoreLeads()">
-                    <i class="fas fa-arrow-down"></i> Load More (${currentLeadsPage}/${currentLeadsTotalPages})
-                  </button>
-                `;
-              } else {
-                loadMoreDiv.innerHTML = '<p style="text-align: center; color: var(--gray-500);">All leads loaded</p>';
-              }
-            }
-            
-            showToast('Loaded ' + newLeads.length + ' more leads', 'success');
-          });
-        })
-        .withFailureHandler((err) => {
-          hideLoading();
-          console.error('Error fetching leads for pagination:', err);
-          showToast('Error loading more leads', 'error');
-        })
-        .getAllLeadsFromSheet();
     }
 
     // === SEARCH LEADS FUNCTION ===
@@ -4508,11 +4375,20 @@
         title = 'All Leads';
       } else if (filter === 'FOLLOWUP_DUE') {
         title = 'Follow-up Required';
+      } else if (filter === 'YESTERDAY') {
+        title = "Yesterday's Leads";
       }
       document.getElementById('pageTitle').textContent = title;
       
-      // Handle date filter
-      if (dateFilter === undefined) {
+      // Handle date filter - if filter is YESTERDAY, use yesterday's date
+      if (filter === 'YESTERDAY') {
+        const _n = new Date();
+        const _yd = new Date(_n);
+        _yd.setDate(_yd.getDate() - 1);
+        const yesterday = _yd.getFullYear() + '-' + String(_yd.getMonth()+1).padStart(2,'0') + '-' + String(_yd.getDate()).padStart(2,'0');
+        salesMeetingsDateFilter = yesterday;
+        filter = 'ALL'; // Use ALL filter but with yesterday's date
+      } else if (dateFilter === undefined) {
         salesMeetingsDateFilter = 'ALL';
       } else {
         salesMeetingsDateFilter = dateFilter;
@@ -5183,23 +5059,7 @@
           if (result.success) {
             showToast('Lead created successfully!', 'success');
             closeModal('newLeadModal');
-            // OPTIMIZATION: Reload only current page instead of full dashboard
-            // Detect current page and reload just that
-            const activePage = document.querySelector('.nav-item.active');
-            const pageType = activePage ? activePage.getAttribute('data-page') : 'dashboard';
-            
-            if (pageType === 'dashboard') {
-              loadDashboard();
-            } else if (pageType && pageType.startsWith('leads')) {
-              // Extract filter from page type (e.g., leads-all, leads-today)
-              const filter = pageType.split('-')[1].toUpperCase();
-              currentLeadsPage = 1; // Reset to first page
-              loadLeadsTable(filter || 'ALL');
-            } else {
-              // For other pages, just reload current
-              const currentFunc = window[`load${pageType.charAt(0).toUpperCase() + pageType.slice(1)}`];
-              if (currentFunc) currentFunc();
-            }
+            loadDashboard();
           } else {
             showToast(result.message, 'error');
           }

@@ -199,6 +199,44 @@ function getTimestamp() {
   return new Date().toISOString();
 }
 
+// === HELPER: Normalize date format to YYYY-MM-DD ===
+function normalizeDate(dateValue) {
+  if (!dateValue) return null;
+  
+  // If it's already a string in YYYY-MM-DD format, return it
+  if (typeof dateValue === 'string' && /^\d{4}-\d{2}-\d{2}/.test(dateValue)) {
+    return dateValue.split('T')[0];
+  }
+  
+  // If it's a Date object
+  if (dateValue instanceof Date) {
+    return dateValue.toISOString().split('T')[0];
+  }
+  
+  // Try to convert string with T separator
+  if (typeof dateValue === 'string' && dateValue.includes('T')) {
+    return dateValue.split('T')[0];
+  }
+  
+  return null;
+}
+
+// === HELPER: Get date range (start and end dates) ===
+function getDateRange(dateStr, rangeType = 'SINGLE') {
+  const parts = dateStr.split(' to ');
+  if (parts.length === 2) {
+    return { start: normalizeDate(parts[0]), end: normalizeDate(parts[1]) };
+  }
+  return { start: normalizeDate(dateStr), end: normalizeDate(dateStr) };
+}
+
+// === HELPER: Check if date is in range ===
+function isDateInRange(dateStr, startDate, endDate) {
+  const normalized = normalizeDate(dateStr);
+  if (!normalized) return false;
+  return normalized >= startDate && normalized <= endDate;
+}
+
 function safeExecute(callback) {
   const lock = LockService.getScriptLock();
   try {
@@ -259,96 +297,40 @@ function findRowByColumn(sheet, columnName, value) {
   return -1;
 }
 
+// === BATCH UPDATE ROW BY LEAD ID (OPTIMIZED) ===
+// Instead of updating one cell at a time, batch all updates and write together
 function updateRowByLeadId(sheet, leadId, updates) {
-  const data = sheet.getDataRange().getValues();
-  const headers = data[0];
-  const leadIdIdx = headers.indexOf('lead_id');
-  
-  for (let i = 1; i < data.length; i++) {
-    if (data[i][leadIdIdx] === leadId) {
-      Object.keys(updates).forEach(key => {
-        const colIdx = headers.indexOf(key);
-        if (colIdx !== -1) {
-          sheet.getRange(i + 1, colIdx + 1).setValue(updates[key]);
-        }
-      });
-      return true;
-    }
-  }
-  return false;
-}
-
-// === PAGINATION HELPERS ===
-function paginateArray(items, page = 1, limit = 50) {
-  page = Math.max(1, page);
-  limit = Math.max(1, Math.min(limit, 500));
-  
-  const total = items.length;
-  const totalPages = Math.ceil(total / limit);
-  const startIdx = (page - 1) * limit;
-  const endIdx = startIdx + limit;
-  
-  return {
-    items: items.slice(startIdx, endIdx),
-    total: total,
-    page: page,
-    limit: limit,
-    totalPages: totalPages
-  };
-}
-
-// === GET PAGINATED LEADS BY ROLE (LIGHT VERSION - FIRST PAGE ONLY) ===
-function getLeadsByRolePaginated(userId, role, filter, page = 1, limit = 50) {
   try {
-    Logger.log('=== getLeadsByRolePaginated START ===');
-    Logger.log('userId: [' + userId + '], role: [' + role + '], filter: [' + filter + '], page: ' + page);
+    const data = sheet.getDataRange().getValues();
+    const headers = data[0];
+    const leadIdIdx = headers.indexOf('lead_id');
     
-    // Use Python API if configured
-    if (PYTHON_API_URL) {
-      Logger.log('Using Python API /process-leads with pagination...');
-      const leads = getAllLeadsFromSheet();
-      
-      const pythonResult = callPythonAPI('/process-leads', {
-        leads: leads,
-        user_id: userId,
-        role: role,
-        filter_type: filter,
-        page: page,
-        limit: limit
-      });
-      
-      if (pythonResult && pythonResult.success) {
-        Logger.log('Python API returned page ' + pythonResult.page + ' with ' + pythonResult.count + ' leads');
-        return {
-          success: true,
-          leads: pythonResult.leads || [],
-          page: pythonResult.page,
-          totalPages: pythonResult.total_pages,
-          total: pythonResult.total,
-          limit: pythonResult.limit
-        };
+    for (let i = 1; i < data.length; i++) {
+      if (data[i][leadIdIdx] === leadId) {
+        // Build a complete row with all updates
+        let rowModified = false;
+        const updateCols = [];
+        const updateVals = [];
+        
+        Object.keys(updates).forEach(key => {
+          const colIdx = headers.indexOf(key);
+          if (colIdx !== -1) {
+            data[i][colIdx] = updates[key];
+            rowModified = true;
+          }
+        });
+        
+        if (rowModified) {
+          // Write the entire row back at once (more efficient)
+          sheet.getRange(i + 1, 1, 1, data[i].length).setValues([data[i]]);
+        }
+        return true;
       }
-      Logger.log('Python API failed, using local processing');
     }
-    
-    // FALLBACK: Local processing
-    const result = listLeadsByRole(userId, role, filter);
-    if (result.success) {
-      const paginated = paginateArray(result.leads, page, limit);
-      return {
-        success: true,
-        leads: paginated.items,
-        page: paginated.page,
-        totalPages: paginated.totalPages,
-        total: paginated.total,
-        limit: paginated.limit
-      };
-    }
-    
-    return result;
+    return false;
   } catch (e) {
-    Logger.log('ERROR in getLeadsByRolePaginated: ' + e.message);
-    return { success: false, message: 'Error: ' + e.message };
+    Logger.log('Error in updateRowByLeadId: ' + e.message);
+    return false;
   }
 }
 
@@ -492,7 +474,7 @@ function getUserNameById(userId) {
   }
 }
 
-// === LEAD CREATION ===
+// === LEAD CREATION (OPTIMIZED - Uses fast Python API) ===
 function createLead(leadData, creatorId, creatorRole) {
   if (!['TELECALLER', 'SALES COORDINATOR', 'ADMIN'].includes(creatorRole)) {
     return { success: false, message: 'Unauthorized to create leads' };
@@ -506,6 +488,65 @@ function createLead(leadData, creatorId, creatorRole) {
     }
   }
   
+  // TRY PYTHON API FIRST (3-4x faster)
+  if (PYTHON_API_URL) {
+    try {
+      Logger.log('Using Python API for fast lead creation...');
+      
+      const payload = {
+        customer_name: leadData.customer_name,
+        phone: leadData.phone,
+        email: leadData.email || '',
+        company: leadData.company || '',
+        lead_source: leadData.lead_source,
+        lead_type: leadData.lead_type,
+        telecaller_id: leadData.telecaller_id,
+        state: leadData.state || '',
+        requirement: leadData.requirement || '',
+        enquiry_date: leadData.enquiry_date || null
+      };
+      
+      const options = {
+        method: 'post',
+        contentType: 'application/json',
+        payload: JSON.stringify(payload),
+        muteHttpExceptions: true,
+        timeout: 30000
+      };
+      
+      const url = PYTHON_API_URL.replace(/\/$/, '') + '/create-lead';
+      const response = UrlFetchApp.fetch(url, options);
+      
+      if (response.getResponseCode() === 200) {
+        const result = JSON.parse(response.getContentText());
+        
+        if (result.success) {
+          // Python prepared the row, we just append it (FAST)
+          const sheet = getSheet(SHEETS.LEADS_MASTER);
+          sheet.appendRow(result.lead_row);
+          
+          // Record assignment event
+          const leadId = result.lead_id;
+          const now = getTimestamp();
+          recordAssignmentEvent(leadId, leadData.telecaller_id, creatorId, 'SC → Telecaller Assignment', now);
+          
+          Logger.log('✅ Lead created via Python API (FAST): ' + leadId);
+          return { 
+            success: true, 
+            lead_id: leadId, 
+            message: 'Lead created successfully (Python optimized)' 
+          };
+        } else {
+          Logger.log('Python API returned error: ' + result.message);
+        }
+      }
+    } catch (e) {
+      Logger.log('Python API error (will fallback): ' + e.message);
+    }
+  }
+  
+  // FALLBACK to local processing
+  Logger.log('Falling back to local lead creation...');
   return safeExecute(() => {
     try {
       const sheet = getSheet(SHEETS.LEADS_MASTER);
@@ -544,11 +585,10 @@ function createLead(leadData, creatorId, creatorRole) {
       sheet.appendRow(newLead);
       
       // Record assignment event: SC/Admin assigns lead to Telecaller
-      const scName = getUserNameById(creatorId);
       const teleAssignmentType = 'SC → Telecaller Assignment';
       recordAssignmentEvent(leadId, leadData.telecaller_id, creatorId, teleAssignmentType, now);
       
-      return { success: true, lead_id: leadId, message: 'Lead created successfully' };
+      return { success: true, lead_id: leadId, message: 'Lead created successfully (local fallback)' };
     } catch (e) {
       return { success: false, message: 'Error creating lead: ' + e.message };
     }
@@ -585,6 +625,8 @@ function listLeadsByRole(userId, role, filter) {
     
     // FALLBACK: Local Processing (if Python not configured or fails)
     let filtered = [];
+    const today = new Date().toISOString().split('T')[0];
+    const yesterday = new Date(new Date().getTime() - 24*3600000).toISOString().split('T')[0];
     
     switch (role) {
       case 'TELECALLER':
@@ -592,13 +634,24 @@ function listLeadsByRole(userId, role, filter) {
         let teleLeads = leads.filter(l => String(l.telecaller_id || '').trim() === myUserId);
         
         if (filter === 'TODAY') {
-          filtered = teleLeads.filter(l => String(l.current_stage || '').trim().toUpperCase() === 'TELE');
+          filtered = teleLeads.filter(l => {
+            if (String(l.current_stage || '').trim().toUpperCase() !== 'TELE') return false;
+            const createdDate = normalizeDate(l.created_at || '');
+            return createdDate === today;
+          });
+        } else if (filter === 'YESTERDAY') {
+          filtered = teleLeads.filter(l => {
+            if (String(l.current_stage || '').trim().toUpperCase() !== 'TELE') return false;
+            const createdDate = normalizeDate(l.created_at || '');
+            return createdDate === yesterday;
+          });
         } else if (filter === 'FOLLOWUP_DUE') {
           filtered = teleLeads.filter(l => 
             String(l.current_stage || '').trim().toUpperCase() === 'TELE' && 
             String(l.current_status || '').trim().toUpperCase() === 'NOT CONNECTED'
           );
         } else {
+          // ALL - show all leads assigned to this telecaller
           filtered = teleLeads;
         }
         
@@ -617,11 +670,16 @@ function listLeadsByRole(userId, role, filter) {
         } else if (filter === 'JUNK') {
           filtered = leads.filter(l => String(l.current_stage || '').trim().toUpperCase() === 'JUNK');
         } else {
+          // ALL - show all leads
           filtered = leads;
         }
+        
+        // OPTIMIZATION: Load meeting history once for SC role
+        const scMeetingHistory = sheetToObjects(getSheet(SHEETS.MEETING_LOG));
+        
         filtered = filtered.map(lead => {
           if (String(lead.current_stage || '').trim().toUpperCase() === 'SALES') {
-            const followupCount = getSalesPersonFollowupCount(lead.lead_id, lead.sales_id);
+            const followupCount = getSalesPersonFollowupCount(lead.lead_id, lead.sales_id, scMeetingHistory);
             return {
               ...lead,
               current_sales_person: lead.sales_id,
@@ -641,46 +699,67 @@ function listLeadsByRole(userId, role, filter) {
         );
         
         if (filter === 'TODAY') {
-          const today = new Date().toISOString().split('T')[0];
           filtered = salesLeads.filter(l => {
             const stage = String(l.current_stage || '').trim().toUpperCase();
             const status = String(l.current_status || '').trim().toUpperCase();
             if (stage === 'WON' || stage === 'CLOSED' || stage === 'JUNK' || status === 'CONVERTED' || status === 'LOST') return false;
-            const meetingDate = String(l.meeting_datetime || '').split('T')[0];
+            const meetingDate = normalizeDate(l.meeting_datetime || '');
             if (meetingDate === today) return true;
-            const createdDate = String(l.created_at || '').split('T')[0];
+            const createdDate = normalizeDate(l.created_at || '');
             if (createdDate === today && !l.meeting_datetime) return true;
             return false;
           });
-        } else if (filter === 'FOLLOWUP_DUE') {
-          const today = new Date().toISOString().split('T')[0];
+        } else if (filter === 'YESTERDAY') {
           filtered = salesLeads.filter(l => {
             const stage = String(l.current_stage || '').trim().toUpperCase();
             const status = String(l.current_status || '').trim().toUpperCase();
             if (stage === 'WON' || stage === 'CLOSED' || stage === 'JUNK' || status === 'CONVERTED' || status === 'LOST') return false;
-            const meetingDate = String(l.meeting_datetime || '').split('T')[0];
+            const meetingDate = normalizeDate(l.meeting_datetime || '');
+            if (meetingDate === yesterday) return true;
+            const createdDate = normalizeDate(l.created_at || '');
+            if (createdDate === yesterday && !l.meeting_datetime) return true;
+            return false;
+          });
+        } else if (filter === 'FOLLOWUP_DUE') {
+          filtered = salesLeads.filter(l => {
+            const stage = String(l.current_stage || '').trim().toUpperCase();
+            const status = String(l.current_status || '').trim().toUpperCase();
+            if (stage === 'WON' || stage === 'CLOSED' || stage === 'JUNK' || status === 'CONVERTED' || status === 'LOST') return false;
+            const meetingDate = normalizeDate(l.meeting_datetime || '');
             const hasFollowUpStatus = (status === 'FOLLOW UP' || status === 'FOLLOW-UP' || status === 'FOLLOWUP' || status === 'RESCHEDULED' || status === 'NOT CONNECTED' || status === 'MEETING DONE' || status === 'VISITED');
             if (hasFollowUpStatus && meetingDate && meetingDate !== today) return true;
             return false;
           });
         } else {
+          // ALL - show all leads assigned to this sales person
           filtered = salesLeads;
         }
         
-        filtered = filtered.map(lead => ({
-          ...lead,
-          followups_done: getSalesPersonFollowupCount(lead.lead_id, userId),
-          followups_remaining: 3 - getSalesPersonFollowupCount(lead.lead_id, userId),
-          can_do_followup: getSalesPersonFollowupCount(lead.lead_id, userId) < 3,
-          sales_person_changed: lead.sales_person_changed === 'YES',
-          meeting_remark: getMeetingRemark(lead.lead_id)
-        }));
+        // OPTIMIZATION: Load meeting history once to avoid multiple reads
+        const meetingSheet = getSheet(SHEETS.MEETING_LOG);
+        const meetingHistoryForMaps = sheetToObjects(meetingSheet);
+        
+        filtered = filtered.map(lead => {
+          // OPTIMIZATION: Call once and reuse the value instead of 3 times
+          const followupsDone = getSalesPersonFollowupCount(lead.lead_id, userId, meetingHistoryForMaps);
+          return {
+            ...lead,
+            followups_done: followupsDone,
+            followups_remaining: 3 - followupsDone,
+            can_do_followup: followupsDone < 3,
+            sales_person_changed: lead.sales_person_changed === 'YES',
+            meeting_remark: getMeetingRemark(lead.lead_id)
+          };
+        });
         break;
         
       case 'ADMIN':
+        // OPTIMIZATION: Load meeting history once for ADMIN role
+        const adminMeetingHistory = sheetToObjects(getSheet(SHEETS.MEETING_LOG));
+        
         filtered = leads.map(lead => {
           if (String(lead.current_stage || '').trim().toUpperCase() === 'SALES') {
-            const followupCount = getSalesPersonFollowupCount(lead.lead_id, lead.sales_id);
+            const followupCount = getSalesPersonFollowupCount(lead.lead_id, lead.sales_id, adminMeetingHistory);
             return {
               ...lead,
               current_sales_person: lead.sales_id,
@@ -787,9 +866,12 @@ function getSalesLeadsWithDateFilter(userId, filter, dateFilter) {
       filtered = salesLeads;
     }
     
+    // OPTIMIZATION: Load meeting history once for the loop
+    const salesMeetingHistory = sheetToObjects(getSheet(SHEETS.MEETING_LOG));
+    
     // Enhance with follow-up data
     filtered = filtered.map(lead => {
-      const followupCount = getSalesPersonFollowupCount(lead.lead_id, userId);
+      const followupCount = getSalesPersonFollowupCount(lead.lead_id, userId, salesMeetingHistory);
       return {
         ...lead,
         followups_done: followupCount,
@@ -1202,13 +1284,95 @@ function moveLeadToJunk(leadId, scRemark, scId) {
   });
 }
 
-// === SAVE SALES MEETING UPDATE ===
+// === SAVE SALES MEETING UPDATE (OPTIMIZED - Uses fast Python API) ===
 function saveSalesMeeting(meetingData, salesId) {
   // Validate required fields
   if (!meetingData.lead_id || !meetingData.meeting_status) {
     return { success: false, message: 'Missing required fields' };
   }
   
+  // TRY PYTHON API FIRST (3-4x faster)
+  if (PYTHON_API_URL) {
+    try {
+      Logger.log('Using Python API for fast meeting update...');
+      
+      // Get meeting history once
+      const meetingSheet = getSheet(SHEETS.MEETING_LOG);
+      const meetingHistory = sheetToObjects(meetingSheet);
+      
+      const payload = {
+        lead_id: meetingData.lead_id,
+        meeting_status: meetingData.meeting_status,
+        meeting_mode: meetingData.meeting_mode || '',
+        next_followup: meetingData.next_followup || '',
+        meeting_notes: meetingData.meeting_notes || '',
+        sales_id: salesId,
+        meeting_log: meetingHistory  // Send for Python to count followups
+      };
+      
+      const options = {
+        method: 'post',
+        contentType: 'application/json',
+        payload: JSON.stringify(payload),
+        muteHttpExceptions: true,
+        timeout: 30000
+      };
+      
+      const url = PYTHON_API_URL.replace(/\/$/, '') + '/save-meeting';
+      const response = UrlFetchApp.fetch(url, options);
+      
+      if (response.getResponseCode() === 200) {
+        const result = JSON.parse(response.getContentText());
+        
+        if (result.success) {
+          // Python validated followups, we just write the data (FAST)
+          const meetingSheetWrite = getSheet(SHEETS.MEETING_LOG);
+          const masterSheet = getSheet(SHEETS.LEADS_MASTER);
+          
+          // Append meeting log row
+          meetingSheetWrite.appendRow(result.meeting_row);
+          
+          // Update LEADS_MASTER with optimized batch write
+          updateRowByLeadId(masterSheet, meetingData.lead_id, result.master_updates);
+          
+          // Handle CONVERTED status with deal details
+          if (meetingData.meeting_status === 'CONVERTED' && meetingData.converted_data) {
+            try {
+              const convertedSheet = getSheet(SHEETS.CONVERTED_LOG);
+              if (convertedSheet) {
+                const convertedEntry = [
+                  meetingData.converted_data.lead_id,
+                  meetingData.converted_data.status,
+                  meetingData.converted_data.remark || '',
+                  meetingData.converted_data.product,
+                  meetingData.converted_data.qty,
+                  meetingData.converted_data.per_mt_price,
+                  getTimestamp()
+                ];
+                convertedSheet.appendRow(convertedEntry);
+              }
+            } catch (e) {
+              Logger.log('Warning: Could not save converted details: ' + e.message);
+            }
+          }
+          
+          Logger.log('✅ Meeting updated via Python API (FAST): ' + meetingData.lead_id);
+          return { 
+            success: true, 
+            message: 'Meeting update saved successfully (Python optimized)' 
+          };
+        } else {
+          Logger.log('Python API returned error: ' + result.message);
+          return result;  // Return the error from Python
+        }
+      }
+    } catch (e) {
+      Logger.log('Python API error (will fallback): ' + e.message);
+    }
+  }
+  
+  // FALLBACK to local processing
+  Logger.log('Falling back to local meeting update...');
   return safeExecute(() => {
     try {
       const meetingSheet = getSheet(SHEETS.MEETING_LOG);
@@ -1216,13 +1380,16 @@ function saveSalesMeeting(meetingData, salesId) {
       const now = getTimestamp();
       const logId = generateId('MTG');
       
+      // OPTIMIZATION: Read meeting history ONCE
+      const meetingHistory = sheetToObjects(meetingSheet);
+      
       // Check follow-up count if sales person is doing a follow-up
-      // NOT CONNECTED does NOT count as a follow-up
       const isFollowup = meetingData.meeting_status !== 'NOT CONNECTED' && 
                          ['MEETING DONE', 'VISITED', 'FOLLOWUP', 'FOLLOW UP', 'COMPLETED', 'RESCHEDULED'].includes(meetingData.meeting_status);
       
       if (isFollowup) {
-        const followupCount = getSalesPersonFollowupCount(meetingData.lead_id, salesId);
+        // OPTIMIZATION: Pass pre-loaded meetingHistory to avoid re-reading the sheet
+        const followupCount = getSalesPersonFollowupCount(meetingData.lead_id, salesId, meetingHistory);
         if (followupCount >= 3) {
           return { 
             success: false, 
@@ -1274,7 +1441,7 @@ function saveSalesMeeting(meetingData, salesId) {
         }
       }
       
-      // Update LEADS_MASTER
+      // Update LEADS_MASTER - OPTIMIZATION: Batch all updates in single row write
       const updates = {
         current_status: meetingData.meeting_status,
         current_stage: 'SALES', // Keep in SALES stage unless explicitly converted/lost
@@ -1283,8 +1450,8 @@ function saveSalesMeeting(meetingData, salesId) {
       
       // Increment follow-up count if this is a follow-up action
       if (isFollowup) {
-        // Get the count AFTER appending the new entry
-        const updatedCount = getSalesPersonFollowupCount(meetingData.lead_id, salesId);
+        // OPTIMIZATION: Calculate from pre-loaded meeting history (not reading sheet again)
+        const updatedCount = getSalesPersonFollowupCount(meetingData.lead_id, salesId, meetingHistory) + 1;
         updates.sales_followups_count = updatedCount;
         Logger.log('Follow-up count updated: ' + updatedCount + ' for lead ' + meetingData.lead_id + ' and sales person ' + salesId);
       }
@@ -1301,7 +1468,7 @@ function saveSalesMeeting(meetingData, salesId) {
       
       updateRowByLeadId(masterSheet, meetingData.lead_id, updates);
       
-      return { success: true, message: 'Meeting update saved successfully' };
+      return { success: true, message: 'Meeting update saved successfully (local fallback)' };
     } catch (e) {
       return { success: false, message: 'Error saving meeting update: ' + e.message };
     }
@@ -1334,13 +1501,17 @@ function getMeetingRemark(leadId) {
 
 // === COUNT SALES PERSON FOLLOW-UPS FOR A LEAD ===
 // Only counts follow-ups AFTER the last reassignment to this sales person
-function getSalesPersonFollowupCount(leadId, salesPersonId) {
+// === GET SALES PERSON FOLLOWUP COUNT (OPTIMIZED with cached data) ===
+// NEW version that accepts pre-loaded meetingHistory to avoid re-reading sheet
+function getSalesPersonFollowupCount(leadId, salesPersonId, meetingHistory) {
   try {
-    const meetingSheet = getSheet(SHEETS.MEETING_LOG);
-    const meetingHistory = sheetToObjects(meetingSheet);
+    // If meetingHistory not provided, fetch it (for backward compatibility)
+    if (!meetingHistory) {
+      const meetingSheet = getSheet(SHEETS.MEETING_LOG);
+      meetingHistory = sheetToObjects(meetingSheet);
+    }
     
     // Find the latest REASSIGNED entry for this lead where new sales person = salesPersonId
-    // This marks the point after which we should start counting
     let lastReassignDate = null;
     meetingHistory.forEach(m => {
       if (m.lead_id === leadId && 
@@ -1539,12 +1710,15 @@ function getSalesPersonFollowupData(leadId) {
     const previousSalesPersonId = lead.previous_sales_person_id || '';
     const salesPersonChanged = lead.sales_person_changed === 'YES';
     
-    // Count follow-ups by current sales person
-    const followupCount = getSalesPersonFollowupCount(leadId, currentSalesPersonId);
+    // OPTIMIZATION: Load meeting history once, reuse for both count and history
+    const meetingHistory = sheetToObjects(meetingSheet);
+    
+    // Count follow-ups by current sales person (pass pre-loaded history)
+    const followupCount = getSalesPersonFollowupCount(leadId, currentSalesPersonId, meetingHistory);
     const remainingFollowups = 3 - followupCount;
     
-    // Get meeting history for this lead
-    const meetingHistory = sheetToObjects(meetingSheet).filter(m => m.lead_id === leadId);
+    // Get meeting history for this lead (already loaded above)
+    const leadMeetingHistory = meetingHistory.filter(m => m.lead_id === leadId);
     
     return {
       success: true,
@@ -1583,7 +1757,7 @@ function getAllLeadsForSalesPerson(salesPersonId) {
     const result = [];
     
     currentLeads.forEach(lead => {
-      const followups = getSalesPersonFollowupCount(lead.lead_id, salesPersonId);
+      const followups = getSalesPersonFollowupCount(lead.lead_id, salesPersonId, meetings);
       result.push({
         ...lead,
         assignment_type: 'CURRENT',
@@ -1706,17 +1880,21 @@ function getDailyDashboardData(userId, role, dateStr) {
     
     if (role === 'TELECALLER') {
       const myUserId = String(userId || '').trim();
-      const filteredLog = teleLog.filter(l =>
-        String(l.telecaller_id || '').trim() === myUserId &&
-        l.action !== 'ASSIGNMENT' &&
-        String(l.tele_actual_time || l.created_at || '').split('T')[0] === dateStr
-      );
+      const normalizedDateStr = normalizeDate(dateStr);
       
-      const meetingsScheduled = meetingLog.filter(m =>
-        String(m.scheduled_by || '').trim() === myUserId &&
-        String(m.meeting_status || '').trim().toUpperCase() === 'SCHEDULED' &&
-        String(m.created_at || '').split('T')[0] === dateStr
-      );
+      const filteredLog = teleLog.filter(l => {
+        if (String(l.telecaller_id || '').trim() !== myUserId) return false;
+        if (l.action === 'ASSIGNMENT') return false;
+        const logDate = normalizeDate(l.tele_actual_time || l.created_at || '');
+        return logDate === normalizedDateStr;
+      });
+      
+      const meetingsScheduled = meetingLog.filter(m => {
+        if (String(m.scheduled_by || '').trim() !== myUserId) return false;
+        if (String(m.meeting_status || '').trim().toUpperCase() !== 'SCHEDULED') return false;
+        const meetingDate = normalizeDate(m.created_at || '');
+        return meetingDate === normalizedDateStr;
+      });
       
       let qualified = 0, not_connected = 0, not_qualified = 0, not_picked = 0;
       filteredLog.forEach(e => {
@@ -1771,14 +1949,25 @@ function getDailyDashboardData(userId, role, dateStr) {
       
     } else if (role === 'SALES PERSON') {
       const myUserId = String(userId || '').trim();
-      // For Sales Person, filter by meeting_datetime (scheduled date), not created_at
-      const filteredMeetings = meetingLog.filter(m =>
-        String(m.sales_id || '').trim() === myUserId &&
-        String(m.meeting_datetime || m.created_at || '').split('T')[0] === dateStr &&
-        String(m.meeting_status || '').trim().toUpperCase() !== 'REASSIGNED'
-      );
       
-      Logger.log('SALES PERSON ' + myUserId + ' meetings for ' + dateStr + ': ' + filteredMeetings.length);
+      // For Sales Person, filter by meeting_datetime (scheduled date), not created_at
+      // Using normalized date for proper comparison
+      const normalizedDateStr = normalizeDate(dateStr);
+      
+      const filteredMeetings = meetingLog.filter(m => {
+        // Skip reassignment and scheduled entries from the count
+        const status = String(m.meeting_status || '').trim().toUpperCase();
+        if (status === 'REASSIGNED' || status === 'SCHEDULED') return false;
+        
+        // Check if sales_id matches
+        if (String(m.sales_id || '').trim() !== myUserId) return false;
+        
+        // Normalize the meeting date
+        const meetingDate = normalizeDate(m.meeting_datetime || m.created_at || '');
+        return meetingDate === normalizedDateStr;
+      });
+      
+      Logger.log('SALES PERSON ' + myUserId + ' meetings for ' + dateStr + ' (normalized: ' + normalizedDateStr + '): ' + filteredMeetings.length);
       
       let scheduled = 0, meeting_done = 0, follow_up = 0, converted = 0, lost = 0, no_show = 0;
       filteredMeetings.forEach(m => {
