@@ -268,9 +268,12 @@ async def process_leads(request: FilterRequest):
             ]
             
             if filter_type == 'TODAY':
+                today = datetime.now().strftime('%Y-%m-%d')
                 filtered = [
                     l for l in filtered
-                    if str_trim_upper(l.get('current_stage', '')) == 'TELE'
+                    if str_trim_upper(l.get('current_stage', '')) == 'TELE' and
+                       (get_date_part(l.get('created_at', '')) == today or 
+                        get_date_part(l.get('updated_at', '')) == today)
                 ]
             elif filter_type == 'FOLLOWUP_DUE':
                 filtered = [
@@ -307,7 +310,9 @@ async def process_leads(request: FilterRequest):
                     l for l in sales_leads
                     if (str_trim_upper(l.get('current_stage', '')) != 'WON' and
                         str_trim_upper(l.get('current_status', '')) not in ('CONVERTED', 'LOST') and
-                        get_date_part(l.get('meeting_datetime', '')) == today)
+                        (get_date_part(l.get('meeting_datetime', '')) == today or 
+                         (get_date_part(l.get('created_at', '')) == today and not get_date_part(l.get('meeting_datetime', ''))) or 
+                         (get_date_part(l.get('updated_at', '')) == today and not get_date_part(l.get('meeting_datetime', '')))))
                 ]
             elif filter_type == 'FOLLOWUP_DUE':
                 today = datetime.now().strftime('%Y-%m-%d')
@@ -319,7 +324,7 @@ async def process_leads(request: FilterRequest):
                                                                            'RESCHEDULED', 'NOT CONNECTED', 
                                                                            'MEETING DONE', 'VISITED') and
                         get_date_part(l.get('meeting_datetime', '')) and
-                        get_date_part(l.get('meeting_datetime', '')) != today)
+                        get_date_part(l.get('meeting_datetime', '')) <= today)
                 ]
             else:
                 filtered = sales_leads

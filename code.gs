@@ -66,6 +66,16 @@ function getMeetingLog() {
   return sheetToObjects(sheet);
 }
 
+// === HELPER: Fetch all dashboard logs ===
+function getLogsForDashboard() {
+  return {
+    success: true,
+    tele: getTeleActivityLog(),
+    meeting: getMeetingLog(),
+    users: getAllUsersFromSheet()
+  };
+}
+
 // === HELPER: Call Python API for lead processing ===
 function callPythonAPI(endpoint, payload) {
   if (!PYTHON_API_URL) {
@@ -2594,3 +2604,52 @@ function getAdminDailySummary(dateStr) {
     return { success: false, message: 'Error: ' + e.message };
   }
 }
+
+// === SEND SC REPORT EMAIL ===
+function sendSCReportEmail(targetEmail, stats, scName) {
+  try {
+    const defaultStats = stats || {};
+    const htmlBody = `
+      <div style="font-family: Arial, sans-serif; color: #333;">
+        <h2 style="color: #0056b3;">Daily NBD Dashboard Summary</h2>
+        <p><strong>Prepared by (SC):</strong> ${scName || 'Sales Coordinator'}</p>
+        <p><strong>Date:</strong> ${new Date().toLocaleDateString()}</p>
+        <hr />
+        <h3>Dashboard Metrics</h3>
+        <table style="border-collapse: collapse; width: 100%; max-width: 600px;">
+          <tr style="background: #f8f9fa;">
+            <td style="padding: 10px; border: 1px solid #ddd;"><strong>Total Leads</strong></td>
+            <td style="padding: 10px; border: 1px solid #ddd;">${defaultStats.total || 0}</td>
+          </tr>
+          <tr>
+            <td style="padding: 10px; border: 1px solid #ddd;"><strong>Pending Verification</strong></td>
+            <td style="padding: 10px; border: 1px solid #ddd;">${defaultStats.pending_verification || 0}</td>
+          </tr>
+          <tr style="background: #f8f9fa;">
+            <td style="padding: 10px; border: 1px solid #ddd;"><strong>Verified Today</strong></td>
+            <td style="padding: 10px; border: 1px solid #ddd;">${defaultStats.verified_today || 0}</td>
+          </tr>
+          <tr>
+            <td style="padding: 10px; border: 1px solid #ddd;"><strong>Created Today</strong></td>
+            <td style="padding: 10px; border: 1px solid #ddd;">${defaultStats.created_today || 0}</td>
+          </tr>
+        </table>
+        <p style="margin-top: 20px; font-size: 12px; color: #777;">
+          This is an automated report generated from the NBD CRM.
+        </p>
+      </div>
+    `;
+    
+    MailApp.sendEmail({
+      to: targetEmail,
+      subject: `NBD Daily SC Report - ${new Date().toLocaleDateString()}`,
+      htmlBody: htmlBody
+    });
+    
+    return { success: true, message: 'Report sent successfully' };
+  } catch(err) {
+    Logger.log('Error sending SC email: ' + err.toString());
+    return { success: false, message: err.toString() };
+  }
+}
+
